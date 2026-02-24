@@ -654,33 +654,233 @@
   }
 
   // ═══════════════════════════════════════════════════════════════════════════════
-  // MASTER ORCHESTRATOR — runs all passes in sequence
+  // VALIDATION RETRY HELPERS
   // ═══════════════════════════════════════════════════════════════════════════════
+
+  // Find the Next / Submit button on the current page/step.
+  function findNextOrSubmitButton() {
+    const nextRx   = /^(next|next step|next page|continue|save and continue|proceed|advance)$/i;
+    const submitRx = /^(submit|submit application|apply|apply now|send application|complete application|review and submit|review application)$/i;
+
+    const candidates = Array.from(document.querySelectorAll(
+      'button:not([disabled]), input[type="submit"]:not([disabled])'
+    )).filter(el => el.offsetParent !== null);
+
+    // Prefer "Next"-type over "Submit"-type so multi-step forms advance one step at a time
+    for (const el of candidates) {
+      const t = (el.innerText || el.textContent || el.value || "").trim();
+      if (nextRx.test(t)) return el;
+    }
+    for (const el of candidates) {
+      const t = (el.innerText || el.textContent || el.value || "").trim();
+      if (submitRx.test(t)) return el;
+    }
+
+    // Last resort: the final visible non-back button inside the form
+    const form = document.querySelector("form");
+    const btns = Array.from((form || document).querySelectorAll("button:not([disabled])"))
+      .filter(el => {
+        if (el.offsetParent === null) return false;
+        const t = (el.innerText || el.textContent || "").toLowerCase().trim();
+        return !t.startsWith("back") && !t.startsWith("prev") && !t.includes("cancel") && t.length > 0;
+      });
+    return btns[btns.length - 1] || null;
+  }
+
+  // Collect all currently-errored fields visible on the page.
+  function collectErrors() {
+    const found = new Map(); // element → reason string
+
+    // 1. aria-invalid on form elements
+    for (const el of document.querySelectorAll(
+      'input[aria-invalid="true"], select[aria-invalid="true"], ' +
+      'textarea[aria-invalid="true"], [role="combobox"][aria-invalid="true"]'
+    )) {
+      if (el.offsetParent !== null) found.set(el, "aria-invalid");
+    }
+
+    // 2. Error class on a wrapper — find the field inside it
+    for (const container of document.querySelectorAll(
+      '[class*="has-error"], [class*="field--error"], [class*="field-error"], ' +
+      '[class*="is-invalid"], [class*="input-error"], [class*="error-field"]'
+    )) {
+      if (container.offsetParent === null) continue;
+      const field = container.querySelector(
+        'input:not([type=hidden]):not([type=submit]):not([type=button]), ' +
+        'select, textarea, [role="combobox"], [aria-haspopup="listbox"]'
+      );
+      if (field && !found.has(field)) found.set(field, "wrapper-error-class");
+    }
+
+    // 3. Native HTML5 :invalid (required + empty)
+    for (const el of document.querySelectorAll("input:invalid, select:invalid, textarea:invalid")) {
+      if (el.offsetParent !== null && !found.has(el)) found.set(el, "native-invalid");
+    }
+
+    // 4. Visible error/alert text nodes — trace back to their field
+    for (const msg of document.querySelectorAll(
+      '[class*="error-message"], [class*="errorMessage"], [class*="validation-error"], ' +
+      '[class*="field-message"], [role="alert"]'
+    )) {
+      if (msg.offsetParent === null || !(msg.innerText || "").trim()) continue;
+      const container = msg.closest(
+        '[class*="field"], [class*="form-group"], [class*="input-group"], li, fieldset'
+      );
+      if (!container) continue;
+      const field = container.querySelector(
+        'input:not([type=hidden]):not([type=submit]):not([type=button]), ' +
+        'select, textarea, [role="combobox"], [aria-haspopup="listbox"]'
+      );
+      if (field && !found.has(field)) found.set(field, "error-msg-nearby");
+    }
+
+    return Array.from(found.keys());
+  }
+
+  // Fix a single errored field using profile data or sensible fallbacks.
+  async function fixSingleError(el, profile) {
+    const containerEl = el.closest(
+      '[class*="field"], [class*="form-group"], [class*="input-group"], li, fieldset'
+    ) || el.parentElement;
+    const ctx = (getElementContext(el) + " " +
+      (containerEl ? (containerEl.innerText || containerEl.textContent || "") : "")
+    ).toLowerCase();
+
+    // ── Native <select> ──────────────────────────────────────────────────────
+    if (el.tagName === "SELECT") {
+      const opts = Array.from(el.options).filter(o => o.value !== "" && o.index !== 0);
+      if (!opts.length) return;
+      const m = getMappings(profile);
+      for (const { kw, val } of m.selects) {
+        if (val && kw.some(k => ctx.includes(k.toLowerCase()))) {
+          if (!selectBestOption(el, val)) applyNativeSelect(el, opts[0]);
+          return;
+        }
+      }
+      const yes = opts.find(o => /^yes/i.test(o.text.trim()));
+      applyNativeSelect(el, yes || opts[0]);
+      return;
+    }
+
+    // ── Radio button ─────────────────────────────────────────────────────────
+    if (el.type === "radio") {
+      const group = Array.from(
+        document.querySelectorAll(`input[type="radio"][name="${CSS.escape(el.name)}"]`)
+      );
+      const yes = group.find(r => {
+        const lbl = document.querySelector(`label[for="${CSS.escape(r.id)}"]`);
+        return /^yes/i.test((lbl?.innerText || r.value || "").trim());
+      });
+      (yes || group[0])?.click();
+      return;
+    }
+
+    // ── Text input / Textarea ────────────────────────────────────────────────
+    if (el.tagName === "INPUT" || el.tagName === "TEXTAREA") {
+      if (el.value && el.value.trim().length > 0) return; // already has content
+      const m = getMappings(profile);
+      for (const { kw, val } of m.inputs) {
+        if (val && kw.some(k => ctx.includes(k.toLowerCase()))) {
+          setNativeValue(el, String(val));
+          return;
+        }
+      }
+      // Generic fallback
+      const fallback = el.tagName === "TEXTAREA"
+        ? (profile.elevatorPitch || profile.greatestStrength || "Experienced professional.")
+        : (profile.firstName || "");
+      if (fallback) setNativeValue(el, fallback);
+      return;
+    }
+
+    // ── Custom dropdown (React-Select / combobox) ────────────────────────────
+    let control = null;
+    if (el.getAttribute("role") === "combobox") {
+      control = el.closest('[class*="__control"]') || el.parentElement?.parentElement;
+    } else if (el.getAttribute("aria-haspopup") === "listbox") {
+      control = el;
+    }
+    if (control && control !== el && control.tagName !== "SELECT") {
+      control.click();
+      await sleep(500);
+      const menu =
+        control.parentElement?.querySelector('[role="listbox"]') ||
+        document.querySelector('[role="listbox"]:not(.pac-container *)') ||
+        document.querySelector('[class*="select__menu"]');
+      if (menu) {
+        const opts = Array.from(menu.querySelectorAll('[role="option"]'))
+          .filter(o => o.offsetParent !== null);
+        if (opts.length) { opts[0].click(); await sleep(200); return; }
+      }
+      document.body.click();
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // MASTER ORCHESTRATOR — fill passes + validation retry loop
+  // ═══════════════════════════════════════════════════════════════════════════════
+  async function runAllFillPasses(profile) {
+    let count = 0;
+    count += runStructuredFill(profile);
+    try { count += await fillReactSelects(profile); } catch (e) { console.warn("[EazyApply] React-Select error:", e); }
+    try { count += await confirmAutocompleteSuggestions(); } catch (e) {}
+    try { count += await runAIPass(profile); } catch (e) { console.warn("[EazyApply] AI pass error:", e); }
+    try { count += await fillResumeUpload(); } catch (e) {}
+    count += fallbackFillSelects();
+    count += fallbackFillRadios();
+    try { await sleep(400); count += await confirmAutocompleteSuggestions(); } catch (e) {}
+    return count;
+  }
+
   async function fillForms(profile) {
     const platform = detectPlatform();
     let count = 0;
 
-    // Pass 1: Structured keyword-matched fill (text inputs, native selects, radios)
-    count += runStructuredFill(profile);
+    // ── Initial fill ────────────────────────────────────────────────────────
+    count += await runAllFillPasses(profile);
 
-    // Pass 2: React-Select custom dropdowns (Greenhouse demographics)
-    try { count += await fillReactSelects(profile); } catch (e) { console.warn("[EazyApply] React-Select pass error:", e); }
+    // ── Validation retry loop ───────────────────────────────────────────────
+    // Up to 5 "steps" (pages in a multi-step form).
+    // For each step, click Next/Submit up to 3 times fixing errors between clicks.
+    const MAX_STEPS   = 5;
+    const MAX_RETRIES = 3;
 
-    // Pass 3: Confirm autocomplete suggestions (city dropdowns)
-    try { count += await confirmAutocompleteSuggestions(); } catch (e) {}
+    for (let step = 0; step < MAX_STEPS; step++) {
+      await sleep(500);
+      const btn = findNextOrSubmitButton();
+      if (!btn) break;
 
-    // Pass 4: AI answers for remaining custom textareas
-    try { count += await runAIPass(profile); } catch (e) { console.warn("[EazyApply] AI pass error:", e); }
+      let advanced = false;
 
-    // Pass 5: Resume upload
-    try { count += await fillResumeUpload(); } catch (e) {}
+      for (let retry = 0; retry < MAX_RETRIES; retry++) {
+        btn.click();
+        await sleep(1500); // let validation render
 
-    // Pass 6: FALLBACK — fill ALL remaining empty selects and radio groups
-    count += fallbackFillSelects();
-    count += fallbackFillRadios();
+        const errors = collectErrors();
 
-    // Pass 7: One more autocomplete confirmation after fallbacks may have triggered new dropdowns
-    try { await sleep(500); count += await confirmAutocompleteSuggestions(); } catch (e) {}
+        if (errors.length === 0) {
+          advanced = true;
+          break; // No errors — moved forward (or submitted)
+        }
+
+        console.log(`[EazyApply] Step ${step + 1}, retry ${retry + 1}: fixing ${errors.length} error(s)`);
+
+        // Fix each errored field
+        for (const field of errors) {
+          try { await fixSingleError(field, profile); } catch (_) {}
+        }
+        await sleep(400);
+      }
+
+      if (!advanced) break; // Could not clear all errors — stop
+
+      // Fill any new fields that appeared on the new step
+      await sleep(800);
+      count += await runAllFillPasses(profile);
+
+      // If there's no next button (or we're on a confirmation page), stop
+      if (!findNextOrSubmitButton()) break;
+    }
 
     showToast(count, platform);
     return count;
