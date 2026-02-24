@@ -28,6 +28,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.action === "GET_RESUME") {
+    chrome.storage.local.get("eazyapply_resume", (result) => {
+      sendResponse({ resume: result.eazyapply_resume || null });
+    });
+    return true;
+  }
+
   if (message.action === "FILL_PAGE") {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (tabs[0]?.id) {

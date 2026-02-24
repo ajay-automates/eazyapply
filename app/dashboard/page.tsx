@@ -281,6 +281,23 @@ export default function DashboardPage() {
     setUploadStatus("Parsing resume with AI...");
     setResumeFile(file.name);
 
+    // Store resume as base64 in localStorage so the extension can auto-attach it
+    const storeResumeFile = () => new Promise<void>((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const dataUrl = ev.target?.result as string;
+        const base64 = dataUrl?.split(",")[1];
+        if (base64) {
+          const resumeData = { name: file.name, type: file.type || "application/pdf", data: base64 };
+          localStorage.setItem("eazyapply_resume", JSON.stringify(resumeData));
+        }
+        resolve();
+      };
+      reader.onerror = () => resolve();
+      reader.readAsDataURL(file);
+    });
+    storeResumeFile();
+
     try {
       const extracted = await parseResume(file);
       const filledKeys: string[] = [];
