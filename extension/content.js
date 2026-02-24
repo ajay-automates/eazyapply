@@ -110,8 +110,9 @@
     return Array.from(document.querySelectorAll(
       "input:not([type=hidden]):not([type=submit]):not([type=button]):not([type=file]):not([type=radio]):not([type=checkbox]), textarea"
     )).filter(el => {
-      // Skip React-Select internal search inputs
-      if (el.closest('[class*="select__"]') || el.closest('[class*="-control"]')) return false;
+      // Skip React-Select's internal combobox search inputs
+      if (el.getAttribute("role") === "combobox") return false;
+      if (el.closest('[class*="select__"]')) return false;
       if (el.offsetParent === null) return false;
       return keywords.some(k => getElementContext(el).includes(k.toLowerCase()));
     });
@@ -176,7 +177,6 @@
   async function fillReactSelects(profile) {
     let count = 0;
 
-    // Mappings: label keywords -> desired option text
     const reactSelectMap = [
       { kw: ["gender", "identify my gender", "gender identity"], val: profile.gender || "Decline to self-identify" },
       { kw: ["transgender", "identify as transgender"], val: "Decline to self-identify" },
@@ -189,103 +189,108 @@
       { kw: ["country"], val: profile.country || "United States" },
     ];
 
-    // Find all React-Select containers on the page
-    // Greenhouse typically wraps each in a div with class containing "select" or has role="combobox"
-    const selectContainers = document.querySelectorAll(
-      '[class*="select__control"], [class*="css-"][role="combobox"], ' +
-      '[class*="Select__control"], [class*="react-select"]'
-    );
+    // ── Build a deduplicated set of clickable dropdown controls ──────────────
+    // Three strategies so we catch React-Select regardless of class prefix config.
 
-    for (const control of selectContainers) {
-      // Get the parent question container to read the label
+    const controls = new Set();
+
+    // Strategy 1 (most reliable): React-Select always puts role="combobox" on its
+    // internal <input>. Walk up to find the actual clickable container.
+    for (const input of document.querySelectorAll('input[role="combobox"]')) {
+      const control =
+        input.closest('[class*="__control"]') ||   // matches select__control, css-xx__control, etc.
+        input.closest('[class*="control"]') ||
+        input.parentElement?.parentElement;
+      if (control && control !== input && control.tagName !== "SELECT") {
+        controls.add(control);
+      }
+    }
+
+    // Strategy 2: aria-haspopup="listbox" on non-native elements
+    for (const el of document.querySelectorAll('[aria-haspopup="listbox"]:not(select):not(input)')) {
+      controls.add(el);
+    }
+
+    // Strategy 3: explicit React-Select class names (when classNamePrefix is set)
+    for (const el of document.querySelectorAll(
+      '[class*="select__control"], [class*="Select__control"], [class*="react-select__control"]'
+    )) {
+      controls.add(el);
+    }
+
+    for (const control of controls) {
+      if (control.offsetParent === null) continue; // hidden
+
+      // Skip if already filled (has a non-placeholder single value)
+      const singleValue = control.querySelector(
+        '[class*="single-value"], [class*="singleValue"]'
+      );
+      if (singleValue && !/^(select|choose|pick)\b/i.test(singleValue.textContent.trim())) continue;
+
+      // Get label/context for keyword matching
       const questionContainer = control.closest(
         '[class*="field"], [class*="question"], [class*="form-group"], ' +
         'fieldset, .application-question, li, [class*="row"]'
       ) || control.parentElement?.parentElement;
+      const containerText = (questionContainer?.innerText || questionContainer?.textContent || "").toLowerCase().slice(0, 300);
 
-      if (!questionContainer) continue;
-      const containerText = (questionContainer.innerText || questionContainer.textContent || "").toLowerCase().slice(0, 300);
-
-      // Find which mapping matches this container
       let desiredValue = null;
       for (const mapping of reactSelectMap) {
-        if (mapping.kw.some(k => containerText.includes(k.toLowerCase()))) {
-          desiredValue = mapping.val;
-          break;
-        }
+        if (mapping.kw.some(k => containerText.includes(k))) { desiredValue = mapping.val; break; }
       }
 
-      // Check if already has a value selected (not just placeholder)
-      const hasValue = control.querySelector('[class*="select__single-value"], [class*="singleValue"]');
-      if (hasValue && hasValue.textContent.trim() !== "" && !hasValue.textContent.includes("Select")) continue;
-
       try {
-        // Step 1: Click the control to open the dropdown
         control.click();
-        await sleep(400);
+        await sleep(500);
 
-        // Step 2: Find the dropdown menu that appeared
-        const menu = document.querySelector(
-          '[class*="select__menu"], [class*="Select__menu"], ' +
-          '[class*="css-"][role="listbox"], [class*="menu-list"]'
-        );
-        if (!menu) { control.click(); continue; } // close and skip if no menu
+        // Look for the open menu — first near the control, then globally
+        const menu =
+          control.parentElement?.querySelector('[role="listbox"]') ||
+          control.parentElement?.querySelector('[class*="menu"]') ||
+          document.querySelector('[role="listbox"]:not(.pac-container *)') ||
+          document.querySelector('[class*="select__menu"], [class*="Select__menu"]');
 
-        // Step 3: Find all options
-        const options = Array.from(menu.querySelectorAll(
-          '[class*="select__option"], [role="option"], [class*="option"]'
-        ));
-        if (!options.length) { control.click(); continue; }
+        if (!menu) { document.body.click(); await sleep(100); continue; }
 
-        // Step 4: Pick the best option
+        const options = Array.from(
+          menu.querySelectorAll('[role="option"], [class*="select__option"], [class*="option"]')
+        ).filter(o => o.offsetParent !== null);
+
+        if (!options.length) { document.body.click(); continue; }
+
         let picked = false;
 
         if (desiredValue) {
           const desired = desiredValue.toLowerCase();
           const isDecline = ["decline", "prefer not", "don't wish"].some(p => desired.includes(p));
 
-          // Try exact match first
           for (const opt of options) {
-            const optText = opt.textContent.trim().toLowerCase();
-            if (optText === desired) { opt.click(); picked = true; break; }
+            if (opt.textContent.trim().toLowerCase() === desired) { opt.click(); picked = true; break; }
           }
-
-          // Try contains match
           if (!picked) {
             for (const opt of options) {
-              const optText = opt.textContent.trim().toLowerCase();
-              if (optText.includes(desired) || desired.includes(optText)) { opt.click(); picked = true; break; }
+              const t = opt.textContent.trim().toLowerCase();
+              if (t.includes(desired) || desired.includes(t)) { opt.click(); picked = true; break; }
             }
           }
-
-          // Decline pattern matching
           if (!picked && isDecline) {
             const declinePatterns = ["don't wish", "do not wish", "prefer not", "decline",
               "no answer", "rather not", "not to answer", "choose not", "not disclose",
               "not applicable", "i don't", "no response"];
             for (const opt of options) {
-              const optText = opt.textContent.trim().toLowerCase();
-              if (declinePatterns.some(p => optText.includes(p))) { opt.click(); picked = true; break; }
+              if (declinePatterns.some(p => opt.textContent.trim().toLowerCase().includes(p))) {
+                opt.click(); picked = true; break;
+              }
             }
           }
         }
 
-        // FIX #2 FALLBACK: If no match, pick first option
-        if (!picked && options.length > 0) {
-          options[0].click();
-          picked = true;
-        }
+        // Always fall back to first option so no dropdown is left empty
+        if (!picked && options.length > 0) { options[0].click(); picked = true; }
 
-        if (picked) {
-          count++;
-          await sleep(200);
-        } else {
-          // Close the dropdown without selecting
-          document.body.click();
-          await sleep(100);
-        }
+        if (picked) { count++; await sleep(300); }
+        else { document.body.click(); await sleep(100); }
       } catch (e) {
-        // Close dropdown on error
         try { document.body.click(); } catch (_) {}
       }
     }
