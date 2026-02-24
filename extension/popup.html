@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EazyApply</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      width: 280px;
+      background: #09090b;
+      color: #e4e4e7;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 13px;
+    }
+
+    .header {
+      padding: 14px 16px 12px;
+      border-bottom: 1px solid #27272a;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .header .logo {
+      font-size: 18px;
+      line-height: 1;
+    }
+
+    .header .title {
+      font-weight: 700;
+      font-size: 14px;
+      letter-spacing: -0.3px;
+    }
+
+    .header .badge {
+      margin-left: auto;
+      font-size: 10px;
+      font-weight: 600;
+      background: #4ade8015;
+      color: #4ade80;
+      border: 1px solid #4ade8030;
+      padding: 2px 8px;
+      border-radius: 20px;
+    }
+
+    .body { padding: 14px 16px; }
+
+    /* Profile status */
+    .profile-box {
+      background: #18181b;
+      border: 1px solid #27272a;
+      border-radius: 10px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+
+    .profile-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+
+    .profile-name {
+      font-weight: 600;
+      font-size: 13px;
+      color: #f4f4f5;
+    }
+
+    .profile-pct {
+      font-size: 11px;
+      font-weight: 700;
+      color: #4ade80;
+    }
+
+    .progress-bar {
+      height: 4px;
+      background: #27272a;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #4ade80, #34d399);
+      border-radius: 4px;
+      transition: width 0.4s ease;
+    }
+
+    .no-profile {
+      text-align: center;
+      color: #71717a;
+      font-size: 12px;
+      padding: 8px 0;
+    }
+
+    /* Platform badge */
+    .platform-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 12px;
+      font-size: 11px;
+      color: #71717a;
+    }
+
+    .platform-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #4ade80;
+      flex-shrink: 0;
+    }
+
+    /* Buttons */
+    .btn-fill {
+      width: 100%;
+      padding: 10px;
+      background: #4ade80;
+      color: #000;
+      border: none;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: background 0.15s;
+      margin-bottom: 8px;
+    }
+
+    .btn-fill:hover { background: #86efac; }
+    .btn-fill:disabled { background: #27272a; color: #71717a; cursor: not-allowed; }
+
+    .btn-dashboard {
+      width: 100%;
+      padding: 8px;
+      background: transparent;
+      color: #71717a;
+      border: 1px solid #27272a;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      transition: all 0.15s;
+      text-decoration: none;
+    }
+
+    .btn-dashboard:hover { color: #e4e4e7; border-color: #3f3f46; background: #18181b; }
+
+    /* Status message */
+    .status-msg {
+      font-size: 11px;
+      text-align: center;
+      padding: 6px;
+      border-radius: 6px;
+      margin-bottom: 8px;
+      display: none;
+    }
+
+    .status-msg.success { background: #4ade8015; color: #4ade80; display: block; }
+    .status-msg.error   { background: #f8717115; color: #f87171; display: block; }
+    .status-msg.info    { background: #60a5fa15; color: #60a5fa; display: block; }
+
+    /* Not a job page */
+    .not-job-page {
+      text-align: center;
+      padding: 16px 0 4px;
+    }
+
+    .not-job-page .icon { font-size: 28px; margin-bottom: 8px; }
+    .not-job-page p { color: #52525b; font-size: 12px; line-height: 1.5; }
+    .not-job-page .supported {
+      margin-top: 10px;
+      font-size: 10px;
+      color: #3f3f46;
+      line-height: 1.8;
+    }
+
+    .footer {
+      border-top: 1px solid #18181b;
+      padding: 8px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      color: #3f3f46;
+      font-size: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <span class="logo">⚡</span>
+    <span class="title">EazyApply</span>
+    <span class="badge" id="platform-badge">Ready</span>
+  </div>
+
+  <div class="body">
+    <!-- Profile status -->
+    <div class="profile-box" id="profile-box">
+      <div class="no-profile" id="no-profile" style="display:none">
+        No profile saved.<br />Go to dashboard to set up.
+      </div>
+      <div id="profile-info">
+        <div class="profile-row">
+          <span class="profile-name" id="profile-name">Loading...</span>
+          <span class="profile-pct" id="profile-pct">--%</span>
+        </div>
+        <div class="progress-bar">
+          <div class="progress-fill" id="progress-fill" style="width: 0%"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Platform row -->
+    <div class="platform-row" id="platform-row" style="display:none">
+      <span class="platform-dot"></span>
+      <span id="platform-label"></span>
+    </div>
+
+    <!-- Status message -->
+    <div class="status-msg" id="status-msg"></div>
+
+    <!-- Fill button -->
+    <button class="btn-fill" id="btn-fill" disabled>
+      <span>⚡</span> <span>Fill This Page</span>
+    </button>
+
+    <!-- Not a job page message -->
+    <div class="not-job-page" id="not-job-page" style="display:none">
+      <div class="icon">🔍</div>
+      <p>Navigate to a job application page to use EazyApply.</p>
+      <div class="supported">
+        Supports: Greenhouse · LinkedIn · Lever · Workday
+      </div>
+    </div>
+
+    <!-- Dashboard link -->
+    <a href="#" class="btn-dashboard" id="btn-dashboard">
+      Open Dashboard →
+    </a>
+  </div>
+
+  <div class="footer">EazyApply v1.0</div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

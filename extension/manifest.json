@@ -1,0 +1,54 @@
+{
+  "manifest_version": 3,
+  "name": "EazyApply — Auto-Fill Job Applications",
+  "version": "1.0.0",
+  "description": "Auto-fill job applications on Greenhouse, LinkedIn, Lever, Workday in one click.",
+  "permissions": ["storage", "activeTab", "scripting"],
+  "host_permissions": [
+    "https://boards.greenhouse.io/*",
+    "https://*.greenhouse.io/*",
+    "https://www.linkedin.com/*",
+    "https://jobs.lever.co/*",
+    "https://*.lever.co/*",
+    "https://*.myworkdayjobs.com/*",
+    "https://*.wd1.myworkdayjobs.com/*",
+    "https://*.wd3.myworkdayjobs.com/*",
+    "https://*.wd5.myworkdayjobs.com/*"
+  ],
+  "externally_connectable": {
+    "matches": [
+      "https://eazyapply-gsg6wxgfb-ajay-reddys-projects-f60ff2e1.vercel.app/*",
+      "https://eazyapply.vercel.app/*",
+      "http://localhost:3000/*"
+    ]
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://boards.greenhouse.io/*",
+        "https://*.greenhouse.io/*",
+        "https://www.linkedin.com/jobs/*",
+        "https://jobs.lever.co/*",
+        "https://*.lever.co/*",
+        "https://*.myworkdayjobs.com/*",
+        "https://*.wd1.myworkdayjobs.com/*",
+        "https://*.wd3.myworkdayjobs.com/*",
+        "https://*.wd5.myworkdayjobs.com/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "EazyApply"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
