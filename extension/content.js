@@ -273,6 +273,9 @@
         if (m.kw.some(k => ctxText.includes(k))) { desiredValue = m.val; break; }
       }
 
+      // Skip controls with no keyword match — avoids clicking false-positive "Select…" elements
+      if (!desiredValue) continue;
+
       // ── Open the dropdown using 3 methods in order ───────────────────────
       let opened = false;
 
@@ -282,11 +285,18 @@
       );
       if (indicator) {
         indicator.click();
-        await sleep(350);
-        opened = !!(document.querySelector('[role="listbox"]') || document.querySelector('[class*="select__menu"]'));
+        await sleep(400);
+        opened = !!(document.querySelector('[role="listbox"]') || document.querySelector('[class*="select__menu"], [class*="-menu"]'));
       }
 
-      // Method B: Focus internal input + ArrowDown keyboard event
+      // Method B: Plain click on the control div
+      if (!opened) {
+        control.click();
+        await sleep(600);
+        opened = !!(document.querySelector('[role="listbox"]') || document.querySelector('[class*="select__menu"], [class*="-menu"]'));
+      }
+
+      // Method C: Focus internal input + ArrowDown keyboard event
       if (!opened) {
         const innerInput = control.querySelector("input");
         if (innerInput) {
@@ -294,16 +304,9 @@
           innerInput.dispatchEvent(new KeyboardEvent("keydown", {
             key: "ArrowDown", keyCode: 40, code: "ArrowDown", bubbles: true, cancelable: true
           }));
-          await sleep(350);
-          opened = !!(document.querySelector('[role="listbox"]') || document.querySelector('[class*="select__menu"]'));
+          await sleep(400);
+          opened = !!(document.querySelector('[role="listbox"]') || document.querySelector('[class*="select__menu"], [class*="-menu"]'));
         }
-      }
-
-      // Method C: Plain click on the control div
-      if (!opened) {
-        control.click();
-        await sleep(550);
-        opened = !!(document.querySelector('[role="listbox"]') || document.querySelector('[class*="select__menu"]'));
       }
 
       if (!opened) {
@@ -311,21 +314,31 @@
         continue;
       }
 
-      // ── Find the open menu ───────────────────────────────────────────────
-      const menu =
-        control.parentElement?.querySelector('[role="listbox"]') ||
-        document.body.querySelector('[role="listbox"]') ||
-        document.querySelector('[class*="select__menu"], [class*="Select__menu"]');
-
-      if (!menu) { document.body.click(); await sleep(100); continue; }
-
-      const options = Array.from(
-        menu.querySelectorAll('[role="option"], [class*="select__option"], [class*="option"]')
-      ).filter(o => o.offsetParent !== null);
+      // ── Find the open menu + poll for options (up to 1.2s) ───────────────
+      // offsetParent is null for position:fixed menus — use getBoundingClientRect instead
+      let menu = null;
+      let options = [];
+      for (let w = 0; w < 12; w++) {
+        await sleep(100);
+        menu =
+          control.querySelector('[role="listbox"]') ||
+          control.parentElement?.querySelector('[role="listbox"]') ||
+          document.body.querySelector('[role="listbox"]') ||
+          document.querySelector('[class*="select__menu"], [class*="Select__menu"], [class*="-menu"]');
+        if (menu) {
+          options = Array.from(
+            menu.querySelectorAll('[role="option"], [class*="select__option"], [class*="Option"], [class*="-option"]')
+          ).filter(o => {
+            const r = o.getBoundingClientRect();
+            return r.width > 0 || r.height > 0;
+          });
+          if (options.length > 0) break;
+        }
+      }
 
       console.log("[EazyApply] Menu open:", options.length, "options. Desired:", desiredValue);
 
-      if (!options.length) { document.body.click(); continue; }
+      if (!options.length) { document.body.click(); await sleep(150); continue; }
 
       // ── Pick the best option ─────────────────────────────────────────────
       let picked = false;
