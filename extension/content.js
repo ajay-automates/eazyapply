@@ -186,189 +186,151 @@
       { kw: ["disability", "physical disability", "disabilities"], val: profile.disabilityStatus || "Decline to self-identify" },
       { kw: ["pronouns", "preferred pronouns"], val: "Decline to self-identify" },
       { kw: ["how did you hear", "hear about", "how did you find"], val: profile.howDidYouHear || "LinkedIn" },
-      { kw: ["country"], val: profile.country || "United States" },
+      { kw: ["country of residence", "country"], val: profile.country || "United States" },
     ];
 
-    // ── Collect React-Select control divs ────────────────────────────────────
-    const controls = new Set();
-
-    // Strategy 1: Walk up from each combobox input until we find the element
-    // that contains BOTH the input AND a dropdown indicator (aria-hidden="true").
-    // This is the React-Select "control" div — one level above "ValueContainer".
+    // ── Iterate over combobox inputs directly (avoids the control-finding mess) ──
     //
-    // WHY NOT class-name matching: Greenhouse uses hashed CSS (css-abc123-valuecontainer).
-    // cls.includes("container") matches "valuecontainer" — the WRONG level (no indicator).
-    // The control div one level higher contains both the input (via ValueContainer child)
-    // AND the indicator (via IndicatorsContainer sibling of ValueContainer).
-    for (const input of document.querySelectorAll('input[role="combobox"]')) {
-      if (input.offsetParent === null) continue;
-      let el = input.parentElement; // starts at ValueContainer
-      for (let i = 0; i < 6 && el && el !== document.body; i++) {
-        // Control div: has combobox input (inside) AND aria-hidden indicator (sibling path).
-        // ValueContainer: has input but NO indicator → querySelector returns null → skip.
-        if (el.querySelector('input[role="combobox"]') && el.querySelector('[aria-hidden="true"]')) {
-          controls.add(el);
-          break;
-        }
-        el = el.parentElement;
-      }
-    }
+    // React-Select always renders: input[role="combobox"] → ValueContainer → control
+    //
+    // REASON we don't walk up to find the "control" div anymore:
+    //   ValueContainer has a size-mirror <div aria-hidden="true">W</div> inside it
+    //   (used to auto-size the input width). Our old walk-up stopped at ValueContainer
+    //   because querySelector('[aria-hidden]') matched the size-mirror, not the indicator.
+    //   The result was the wrong ancestor being clicked (containing MULTIPLE dropdowns).
+    //
+    // NEW approach: we know the input, we know its listboxId (from aria-controls),
+    // we know the control is input.parentElement.parentElement.
+    // We find the indicator as: control.querySelector('[aria-hidden="true"] svg')
+    //   — the real dropdown arrow has an SVG child; the size-mirror div does NOT.
 
-    // Strategy 2: aria-haspopup="listbox" on non-native elements
-    for (const el of document.querySelectorAll('[aria-haspopup="listbox"]:not(select):not(input)')) {
-      if (el.offsetParent !== null) controls.add(el);
-    }
+    const allInputs = Array.from(document.querySelectorAll('input[role="combobox"]'))
+      .filter(inp => inp.offsetParent !== null);
 
-    // Strategy 3: Explicit React-Select class names (when classNamePrefix is set)
-    for (const el of document.querySelectorAll(
-      '[class*="select__control"], [class*="Select__control"], [class*="react-select"]'
-    )) {
-      if (el.offsetParent !== null) controls.add(el);
-    }
+    showStatus(`Filling ${allInputs.length} dropdown(s)...`);
+    console.log("[EazyApply] fillReactSelects: found", allInputs.length, "combobox inputs");
 
-    showStatus(`Filling ${controls.size} dropdown(s)...`);
-    console.log("[EazyApply] fillReactSelects: found", controls.size, "controls");
+    for (const input of allInputs) {
+      // React-Select: input → ValueContainer → control
+      const valueContainer = input.parentElement;
+      const control = valueContainer?.parentElement;
+      if (!control || control === document.body) continue;
 
-    for (const control of controls) {
-      if (control.offsetParent === null) continue;
-
-      // Skip if already has a real value (not a placeholder)
-      const placeholder = control.querySelector(
-        '[class*="placeholder"], [class*="Placeholder"]'
-      );
-      const singleVal = control.querySelector(
-        '[class*="single-value"], [class*="singleValue"]'
-      );
+      // Skip if already has a real selected value (not a placeholder)
+      const singleVal = valueContainer.querySelector('[class*="singleValue"], [class*="single-value"]');
       if (singleVal && !/^(select|choose|pick)\b/i.test(singleVal.textContent.trim())) continue;
-      if (!placeholder && !singleVal) {
-        // Check if the visible text looks like a placeholder
-        const ctrlTxt = (control.textContent || "").trim();
-        if (ctrlTxt && !/^(select|choose)/i.test(ctrlTxt)) continue;
-      }
 
-      // Get label context for keyword matching
-      const qContainer = control.closest(
+      // Get keyword context from the SURROUNDING form field — go ABOVE the control
+      // to reach the label. We do NOT use control.textContent because it includes
+      // option texts from the hidden size-mirror and confuses keyword matching.
+      const formField = control.parentElement?.closest(
         '[class*="field"], [class*="question"], [class*="form-group"], ' +
         'fieldset, .application-question, li, [class*="row"]'
-      ) || control.parentElement?.parentElement;
-      const ctxText = (qContainer?.innerText || qContainer?.textContent || "").toLowerCase().slice(0, 300);
+      ) || control.parentElement?.parentElement?.parentElement;
+      const ctxText = (formField?.innerText || formField?.textContent || "").toLowerCase().slice(0, 300);
 
       let desiredValue = null;
       for (const m of reactSelectMap) {
         if (m.kw.some(k => ctxText.includes(k))) { desiredValue = m.val; break; }
       }
-
-      // Skip controls with no keyword match — avoids clicking false-positive "Select…" elements
       if (!desiredValue) continue;
 
-      // ── Pre-open snapshot + direct listbox ID ────────────────────────────
-      // Snapshot existing listboxes so we can find NEWLY appeared ones after clicking.
-      // Also grab the inner combobox input — React-Select sets aria-controls on it pointing
-      // directly to its listbox element by ID (the most reliable locator).
-      const preExistingListboxes = new Set(document.querySelectorAll('[role="listbox"]'));
-      const innerInput = control.querySelector('input[aria-controls], input[aria-owns], input[role="combobox"]');
-      const listboxId = innerInput?.getAttribute('aria-controls') || innerInput?.getAttribute('aria-owns');
+      // Direct listbox ID from aria-controls (React-Select always sets this)
+      const listboxId = input.getAttribute('aria-controls') || input.getAttribute('aria-owns');
 
-      // Helper: find the newly opened listbox (not a pre-existing stale one)
+      // The dropdown indicator SVG is inside control but NOT inside ValueContainer.
+      // Use '[aria-hidden="true"] svg' to find only the real indicator
+      // (the size-mirror div has no SVG child — it only contains text).
+      const indicator = control.querySelector('[aria-hidden="true"] svg, svg[aria-hidden="true"]')
+        ?.closest('[aria-hidden="true"]') || control.querySelector('[aria-hidden="true"]');
+
+      // Snapshot existing listboxes before opening (to detect the NEWLY appeared one)
+      const preExisting = new Set(document.querySelectorAll('[role="listbox"]'));
+
       const findNewMenu = () => {
-        // 1. By direct ID link from aria-controls (most reliable)
         if (listboxId) {
           const el = document.getElementById(listboxId);
           if (el) return el;
         }
-        // 2. Any listbox that wasn't in the DOM before we clicked
         for (const el of document.querySelectorAll('[role="listbox"]')) {
-          if (!preExistingListboxes.has(el)) return el;
+          if (!preExisting.has(el)) return el;
         }
-        // 3. Visible listbox tall enough to contain options (≥30px)
         for (const el of document.querySelectorAll('[role="listbox"]')) {
           if (el.getBoundingClientRect().height >= 30) return el;
         }
         return null;
       };
 
-      // ── Open the dropdown (3 methods) ────────────────────────────────────
-      let opened = false;
+      console.log("[EazyApply] Trying:", desiredValue, "| listboxId:", listboxId, "| indicator:", !!indicator);
 
-      // Method A: Click the dropdown indicator arrow (most precise target)
-      const indicator = control.querySelector(
-        '[aria-hidden="true"], [class*="indicator"], [class*="arrow"], [class*="caret"]'
-      );
+      // ── Open the dropdown (3 methods) ──────────────────────────────────────
+      let menu = null;
+
+      // Method A: Click the SVG indicator arrow (most reliable — avoids size-mirror)
       if (indicator) {
         indicator.click();
-        await sleep(400);
-        opened = !!(findNewMenu());
+        await sleep(500);
+        menu = findNewMenu();
       }
 
-      // Method B: Plain click on the control div
-      if (!opened) {
+      // Method B: Click the control div
+      if (!menu) {
         control.click();
         await sleep(600);
-        opened = !!(findNewMenu());
+        menu = findNewMenu();
       }
 
-      // Method C: Focus internal input + ArrowDown keyboard event
-      if (!opened && innerInput) {
-        innerInput.focus();
-        innerInput.dispatchEvent(new KeyboardEvent("keydown", {
+      // Method C: Focus + ArrowDown keyboard
+      if (!menu) {
+        input.focus();
+        input.dispatchEvent(new KeyboardEvent("keydown", {
           key: "ArrowDown", keyCode: 40, code: "ArrowDown", bubbles: true, cancelable: true
         }));
-        await sleep(400);
-        opened = !!(findNewMenu());
+        await sleep(500);
+        menu = findNewMenu();
       }
 
-      if (!opened) {
-        console.log("[EazyApply] Could not open dropdown:", (control.textContent || "").trim().slice(0, 60));
+      if (!menu) {
+        console.log("[EazyApply] Could not open:", desiredValue);
         continue;
       }
 
-      // ── Poll for options in the newly opened menu (up to 1s) ─────────────
-      let menu = null;
+      // ── Poll for options (up to 1s) ─────────────────────────────────────────
       let options = [];
-      for (let w = 0; w < 10; w++) {
+      for (let w = 0; w < 10 && options.length === 0; w++) {
         await sleep(100);
-        menu = findNewMenu();
-        if (menu) {
-          // No visibility filter — trust role="option"; fixed-position menus have offsetParent=null
-          options = Array.from(menu.querySelectorAll('[role="option"]'));
-          if (options.length === 0) {
-            // Some builds don't use role="option" — try class-based fallback
-            options = Array.from(menu.querySelectorAll(
-              '[class*="select__option"], [class*="Option"], [class*="-option"]'
-            ));
-          }
-          if (options.length > 0) break;
+        if (listboxId) menu = document.getElementById(listboxId) || menu;
+        options = Array.from(menu.querySelectorAll('[role="option"]'));
+        if (!options.length) {
+          options = Array.from(menu.querySelectorAll('[class*="select__option"], [class*="Option"]'));
         }
       }
 
-      console.log("[EazyApply] Menu open:", options.length, "options. Desired:", desiredValue, "listboxId:", listboxId);
+      console.log("[EazyApply] Options:", options.length, "| desired:", desiredValue, "| listboxId:", listboxId);
 
       if (!options.length) { document.body.click(); await sleep(200); continue; }
 
-      // ── Pick the best option ─────────────────────────────────────────────
+      // ── Pick the best option ─────────────────────────────────────────────────
       let picked = false;
+      const desired = desiredValue.toLowerCase();
+      const isDecline = ["decline", "prefer not", "don't wish"].some(p => desired.includes(p));
 
-      if (desiredValue) {
-        const desired = desiredValue.toLowerCase();
-        const isDecline = ["decline", "prefer not", "don't wish"].some(p => desired.includes(p));
-
+      for (const opt of options) {
+        if (opt.textContent.trim().toLowerCase() === desired) { opt.click(); picked = true; break; }
+      }
+      if (!picked) {
         for (const opt of options) {
-          if (opt.textContent.trim().toLowerCase() === desired) { opt.click(); picked = true; break; }
+          const t = opt.textContent.trim().toLowerCase();
+          if (t.includes(desired) || desired.includes(t)) { opt.click(); picked = true; break; }
         }
-        if (!picked) {
-          for (const opt of options) {
-            const t = opt.textContent.trim().toLowerCase();
-            if (t.includes(desired) || desired.includes(t)) { opt.click(); picked = true; break; }
-          }
-        }
-        if (!picked && isDecline) {
-          const dp = ["don't wish", "do not wish", "prefer not", "decline",
-            "no answer", "rather not", "not to answer", "choose not",
-            "not disclose", "not applicable", "i don't", "no response"];
-          for (const opt of options) {
-            if (dp.some(p => opt.textContent.trim().toLowerCase().includes(p))) {
-              opt.click(); picked = true; break;
-            }
+      }
+      if (!picked && isDecline) {
+        const dp = ["don't wish", "do not wish", "prefer not", "decline",
+          "no answer", "rather not", "not to answer", "choose not",
+          "not disclose", "not applicable", "i don't", "no response"];
+        for (const opt of options) {
+          if (dp.some(p => opt.textContent.trim().toLowerCase().includes(p))) {
+            opt.click(); picked = true; break;
           }
         }
       }
@@ -376,7 +338,7 @@
       // Always fall back to first option — no dropdown should stay empty
       if (!picked) { options[0].click(); picked = true; }
 
-      if (picked) { count++; await sleep(300); }
+      if (picked) { count++; await sleep(400); }
       else { document.body.click(); await sleep(100); }
     }
 
