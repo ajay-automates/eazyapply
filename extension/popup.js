@@ -1,6 +1,6 @@
 // EazyApply Popup Script
 
-const DASHBOARD_URL = "https://eazyapply-gsg6wxgfb-ajay-reddys-projects-f60ff2e1.vercel.app/dashboard";
+const DASHBOARD_URL = "https://eazyapply-app.vercel.app/dashboard";
 
 const SUPPORTED_PLATFORMS = {
   "greenhouse.io":       "Greenhouse",

@@ -17,8 +17,7 @@
   ],
   "externally_connectable": {
     "matches": [
-      "https://eazyapply-gsg6wxgfb-ajay-reddys-projects-f60ff2e1.vercel.app/*",
-      "https://eazyapply.vercel.app/*",
+      "https://eazyapply-app.vercel.app/*",
       "http://localhost:3000/*"
     ]
   },
