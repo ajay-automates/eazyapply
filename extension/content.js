@@ -189,112 +189,180 @@
       { kw: ["country"], val: profile.country || "United States" },
     ];
 
-    // ── Build a deduplicated set of clickable dropdown controls ──────────────
-    // Three strategies so we catch React-Select regardless of class prefix config.
-
+    // ── Collect all dropdown controls using 4 strategies ────────────────────
     const controls = new Set();
 
-    // Strategy 1 (most reliable): React-Select always puts role="combobox" on its
-    // internal <input>. Walk up to find the actual clickable container.
+    // Strategy 1: React-Select puts role="combobox" on its hidden input.
+    // Walk up the DOM to find the actual clickable control container.
     for (const input of document.querySelectorAll('input[role="combobox"]')) {
-      const control =
-        input.closest('[class*="__control"]') ||   // matches select__control, css-xx__control, etc.
-        input.closest('[class*="control"]') ||
-        input.parentElement?.parentElement;
-      if (control && control !== input && control.tagName !== "SELECT") {
-        controls.add(control);
+      if (input.offsetParent === null) continue;
+      let el = input.parentElement;
+      let found = false;
+      for (let i = 0; i < 5 && el && el !== document.body; i++) {
+        const cls = (el.className || "").toLowerCase();
+        if (cls.includes("control") || cls.includes("container") ||
+            cls.includes("select") || el.getAttribute("role") === "combobox") {
+          controls.add(el);
+          found = true;
+          break;
+        }
+        el = el.parentElement;
+      }
+      // Fallback: 3 levels up regardless of class
+      if (!found) {
+        const ctrl = input.parentElement?.parentElement?.parentElement;
+        if (ctrl && ctrl !== document.body) controls.add(ctrl);
       }
     }
 
     // Strategy 2: aria-haspopup="listbox" on non-native elements
     for (const el of document.querySelectorAll('[aria-haspopup="listbox"]:not(select):not(input)')) {
-      controls.add(el);
+      if (el.offsetParent !== null) controls.add(el);
     }
 
-    // Strategy 3: explicit React-Select class names (when classNamePrefix is set)
+    // Strategy 3: Explicit React-Select class names (when classNamePrefix is set)
     for (const el of document.querySelectorAll(
-      '[class*="select__control"], [class*="Select__control"], [class*="react-select__control"]'
+      '[class*="select__control"], [class*="Select__control"], [class*="react-select"]'
     )) {
-      controls.add(el);
+      if (el.offsetParent !== null) controls.add(el);
     }
+
+    // Strategy 4 (text-based — catches any ATS): find ANY visible element showing
+    // a "Select..." placeholder. This works regardless of the component library.
+    for (const el of document.querySelectorAll("div, span")) {
+      if (el.offsetParent === null) continue;
+      if (el.children.length > 3) continue; // skip containers
+      const txt = (el.textContent || "").trim();
+      if (!/^(select\.{0,3}|choose\.{0,3}|-- ?select ?--|please select)$/i.test(txt)) continue;
+      // Walk up to find the clickable parent
+      const clickable =
+        el.closest('[class*="control"], [class*="select"], [role="combobox"], [aria-haspopup]') ||
+        el.parentElement?.parentElement;
+      if (clickable && clickable !== document.body) controls.add(clickable);
+    }
+
+    showStatus(`Filling ${controls.size} dropdown(s)...`);
+    console.log("[EazyApply] fillReactSelects: found", controls.size, "controls");
 
     for (const control of controls) {
-      if (control.offsetParent === null) continue; // hidden
+      if (control.offsetParent === null) continue;
 
-      // Skip if already filled (has a non-placeholder single value)
-      const singleValue = control.querySelector(
+      // Skip if already has a real value (not a placeholder)
+      const placeholder = control.querySelector(
+        '[class*="placeholder"], [class*="Placeholder"]'
+      );
+      const singleVal = control.querySelector(
         '[class*="single-value"], [class*="singleValue"]'
       );
-      if (singleValue && !/^(select|choose|pick)\b/i.test(singleValue.textContent.trim())) continue;
+      if (singleVal && !/^(select|choose|pick)\b/i.test(singleVal.textContent.trim())) continue;
+      if (!placeholder && !singleVal) {
+        // Check if the visible text looks like a placeholder
+        const ctrlTxt = (control.textContent || "").trim();
+        if (ctrlTxt && !/^(select|choose)/i.test(ctrlTxt)) continue;
+      }
 
-      // Get label/context for keyword matching
-      const questionContainer = control.closest(
+      // Get label context for keyword matching
+      const qContainer = control.closest(
         '[class*="field"], [class*="question"], [class*="form-group"], ' +
         'fieldset, .application-question, li, [class*="row"]'
       ) || control.parentElement?.parentElement;
-      const containerText = (questionContainer?.innerText || questionContainer?.textContent || "").toLowerCase().slice(0, 300);
+      const ctxText = (qContainer?.innerText || qContainer?.textContent || "").toLowerCase().slice(0, 300);
 
       let desiredValue = null;
-      for (const mapping of reactSelectMap) {
-        if (mapping.kw.some(k => containerText.includes(k))) { desiredValue = mapping.val; break; }
+      for (const m of reactSelectMap) {
+        if (m.kw.some(k => ctxText.includes(k))) { desiredValue = m.val; break; }
       }
 
-      try {
+      // ── Open the dropdown using 3 methods in order ───────────────────────
+      let opened = false;
+
+      // Method A: Click the dropdown indicator arrow (most precise target)
+      const indicator = control.querySelector(
+        '[aria-hidden="true"], [class*="indicator"], [class*="arrow"], [class*="caret"]'
+      );
+      if (indicator) {
+        indicator.click();
+        await sleep(350);
+        opened = !!(document.querySelector('[role="listbox"]') || document.querySelector('[class*="select__menu"]'));
+      }
+
+      // Method B: Focus internal input + ArrowDown keyboard event
+      if (!opened) {
+        const innerInput = control.querySelector("input");
+        if (innerInput) {
+          innerInput.focus();
+          innerInput.dispatchEvent(new KeyboardEvent("keydown", {
+            key: "ArrowDown", keyCode: 40, code: "ArrowDown", bubbles: true, cancelable: true
+          }));
+          await sleep(350);
+          opened = !!(document.querySelector('[role="listbox"]') || document.querySelector('[class*="select__menu"]'));
+        }
+      }
+
+      // Method C: Plain click on the control div
+      if (!opened) {
         control.click();
-        await sleep(500);
+        await sleep(550);
+        opened = !!(document.querySelector('[role="listbox"]') || document.querySelector('[class*="select__menu"]'));
+      }
 
-        // Look for the open menu — first near the control, then globally
-        const menu =
-          control.parentElement?.querySelector('[role="listbox"]') ||
-          control.parentElement?.querySelector('[class*="menu"]') ||
-          document.querySelector('[role="listbox"]:not(.pac-container *)') ||
-          document.querySelector('[class*="select__menu"], [class*="Select__menu"]');
+      if (!opened) {
+        console.log("[EazyApply] Could not open dropdown:", (control.textContent || "").trim().slice(0, 60));
+        continue;
+      }
 
-        if (!menu) { document.body.click(); await sleep(100); continue; }
+      // ── Find the open menu ───────────────────────────────────────────────
+      const menu =
+        control.parentElement?.querySelector('[role="listbox"]') ||
+        document.body.querySelector('[role="listbox"]') ||
+        document.querySelector('[class*="select__menu"], [class*="Select__menu"]');
 
-        const options = Array.from(
-          menu.querySelectorAll('[role="option"], [class*="select__option"], [class*="option"]')
-        ).filter(o => o.offsetParent !== null);
+      if (!menu) { document.body.click(); await sleep(100); continue; }
 
-        if (!options.length) { document.body.click(); continue; }
+      const options = Array.from(
+        menu.querySelectorAll('[role="option"], [class*="select__option"], [class*="option"]')
+      ).filter(o => o.offsetParent !== null);
 
-        let picked = false;
+      console.log("[EazyApply] Menu open:", options.length, "options. Desired:", desiredValue);
 
-        if (desiredValue) {
-          const desired = desiredValue.toLowerCase();
-          const isDecline = ["decline", "prefer not", "don't wish"].some(p => desired.includes(p));
+      if (!options.length) { document.body.click(); continue; }
 
+      // ── Pick the best option ─────────────────────────────────────────────
+      let picked = false;
+
+      if (desiredValue) {
+        const desired = desiredValue.toLowerCase();
+        const isDecline = ["decline", "prefer not", "don't wish"].some(p => desired.includes(p));
+
+        for (const opt of options) {
+          if (opt.textContent.trim().toLowerCase() === desired) { opt.click(); picked = true; break; }
+        }
+        if (!picked) {
           for (const opt of options) {
-            if (opt.textContent.trim().toLowerCase() === desired) { opt.click(); picked = true; break; }
+            const t = opt.textContent.trim().toLowerCase();
+            if (t.includes(desired) || desired.includes(t)) { opt.click(); picked = true; break; }
           }
-          if (!picked) {
-            for (const opt of options) {
-              const t = opt.textContent.trim().toLowerCase();
-              if (t.includes(desired) || desired.includes(t)) { opt.click(); picked = true; break; }
-            }
-          }
-          if (!picked && isDecline) {
-            const declinePatterns = ["don't wish", "do not wish", "prefer not", "decline",
-              "no answer", "rather not", "not to answer", "choose not", "not disclose",
-              "not applicable", "i don't", "no response"];
-            for (const opt of options) {
-              if (declinePatterns.some(p => opt.textContent.trim().toLowerCase().includes(p))) {
-                opt.click(); picked = true; break;
-              }
+        }
+        if (!picked && isDecline) {
+          const dp = ["don't wish", "do not wish", "prefer not", "decline",
+            "no answer", "rather not", "not to answer", "choose not",
+            "not disclose", "not applicable", "i don't", "no response"];
+          for (const opt of options) {
+            if (dp.some(p => opt.textContent.trim().toLowerCase().includes(p))) {
+              opt.click(); picked = true; break;
             }
           }
         }
-
-        // Always fall back to first option so no dropdown is left empty
-        if (!picked && options.length > 0) { options[0].click(); picked = true; }
-
-        if (picked) { count++; await sleep(300); }
-        else { document.body.click(); await sleep(100); }
-      } catch (e) {
-        try { document.body.click(); } catch (_) {}
       }
+
+      // Always fall back to first option — no dropdown should stay empty
+      if (!picked) { options[0].click(); picked = true; }
+
+      if (picked) { count++; await sleep(300); }
+      else { document.body.click(); await sleep(100); }
     }
 
+    console.log("[EazyApply] fillReactSelects: filled", count, "dropdowns");
     return count;
   }
 
@@ -660,31 +728,51 @@
   // Find the Next / Submit button on the current page/step.
   function findNextOrSubmitButton() {
     const nextRx   = /^(next|next step|next page|continue|save and continue|proceed|advance)$/i;
-    const submitRx = /^(submit|submit application|apply|apply now|send application|complete application|review and submit|review application)$/i;
+    const submitRx = /^(submit|submit application|apply|apply now|send application|complete application|review and submit|review application|save & submit)$/i;
 
-    const candidates = Array.from(document.querySelectorAll(
+    const getText = el => (el.innerText || el.textContent || el.value || "").trim();
+
+    // ── Enabled buttons first ────────────────────────────────────────────────
+    const enabled = Array.from(document.querySelectorAll(
       'button:not([disabled]), input[type="submit"]:not([disabled])'
     )).filter(el => el.offsetParent !== null);
 
-    // Prefer "Next"-type over "Submit"-type so multi-step forms advance one step at a time
-    for (const el of candidates) {
-      const t = (el.innerText || el.textContent || el.value || "").trim();
-      if (nextRx.test(t)) return el;
-    }
-    for (const el of candidates) {
-      const t = (el.innerText || el.textContent || el.value || "").trim();
-      if (submitRx.test(t)) return el;
+    for (const el of enabled) { if (nextRx.test(getText(el))) return el; }
+    for (const el of enabled) { if (submitRx.test(getText(el))) return el; }
+
+    // ── Disabled submit/next buttons — clicking them still fires validation ──
+    // Many forms keep Submit disabled until fields pass client-side validation.
+    // We still click it so the form marks missing fields with error styles.
+    const disabled = Array.from(document.querySelectorAll(
+      'button[disabled], input[type="submit"][disabled]'
+    )).filter(el => el.offsetParent !== null);
+
+    for (const el of disabled) {
+      const t = getText(el);
+      if (nextRx.test(t) || submitRx.test(t)) {
+        // Temporarily enable so the click event fires properly
+        el.removeAttribute("disabled");
+        el.removeAttribute("aria-disabled");
+        console.log("[EazyApply] Clicking previously-disabled button:", t);
+        return el;
+      }
     }
 
-    // Last resort: the final visible non-back button inside the form
+    // ── Last resort: last visible non-back button in the form ────────────────
     const form = document.querySelector("form");
-    const btns = Array.from((form || document).querySelectorAll("button:not([disabled])"))
+    const btns = Array.from((form || document).querySelectorAll("button"))
       .filter(el => {
         if (el.offsetParent === null) return false;
-        const t = (el.innerText || el.textContent || "").toLowerCase().trim();
+        const t = getText(el).toLowerCase();
         return !t.startsWith("back") && !t.startsWith("prev") && !t.includes("cancel") && t.length > 0;
       });
-    return btns[btns.length - 1] || null;
+    if (btns.length) {
+      console.log("[EazyApply] Fallback button:", getText(btns[btns.length - 1]));
+      return btns[btns.length - 1];
+    }
+
+    console.log("[EazyApply] No Next/Submit button found on this page");
+    return null;
   }
 
   // Collect all currently-errored fields visible on the page.
@@ -821,9 +909,12 @@
   // ═══════════════════════════════════════════════════════════════════════════════
   async function runAllFillPasses(profile) {
     let count = 0;
+    showStatus("Filling text fields...");
     count += runStructuredFill(profile);
+    showStatus("Filling dropdowns...");
     try { count += await fillReactSelects(profile); } catch (e) { console.warn("[EazyApply] React-Select error:", e); }
     try { count += await confirmAutocompleteSuggestions(); } catch (e) {}
+    showStatus("AI answering custom questions...");
     try { count += await runAIPass(profile); } catch (e) { console.warn("[EazyApply] AI pass error:", e); }
     try { count += await fillResumeUpload(); } catch (e) {}
     count += fallbackFillSelects();
@@ -837,18 +928,24 @@
     let count = 0;
 
     // ── Initial fill ────────────────────────────────────────────────────────
+    showStatus("Starting fill...");
     count += await runAllFillPasses(profile);
 
     // ── Validation retry loop ───────────────────────────────────────────────
-    // Up to 5 "steps" (pages in a multi-step form).
-    // For each step, click Next/Submit up to 3 times fixing errors between clicks.
     const MAX_STEPS   = 5;
     const MAX_RETRIES = 3;
 
     for (let step = 0; step < MAX_STEPS; step++) {
-      await sleep(500);
+      await sleep(600);
       const btn = findNextOrSubmitButton();
-      if (!btn) break;
+      if (!btn) {
+        console.log("[EazyApply] No Next/Submit button found — stopping");
+        break;
+      }
+
+      const btnLabel = (btn.innerText || btn.textContent || btn.value || "button").trim();
+      showStatus(`Clicking "${btnLabel}"...`);
+      console.log(`[EazyApply] Step ${step + 1}: clicking "${btnLabel}"`);
 
       let advanced = false;
 
@@ -857,33 +954,62 @@
         await sleep(1500); // let validation render
 
         const errors = collectErrors();
+        console.log(`[EazyApply] Step ${step + 1}, retry ${retry + 1}: ${errors.length} error(s)`);
 
         if (errors.length === 0) {
           advanced = true;
-          break; // No errors — moved forward (or submitted)
+          break;
         }
 
-        console.log(`[EazyApply] Step ${step + 1}, retry ${retry + 1}: fixing ${errors.length} error(s)`);
+        showStatus(`Fixing ${errors.length} error(s) (attempt ${retry + 1})...`);
 
-        // Fix each errored field
         for (const field of errors) {
           try { await fixSingleError(field, profile); } catch (_) {}
         }
         await sleep(400);
       }
 
-      if (!advanced) break; // Could not clear all errors — stop
+      if (!advanced) {
+        console.log("[EazyApply] Could not clear errors — stopping retry loop");
+        break;
+      }
 
       // Fill any new fields that appeared on the new step
       await sleep(800);
+      showStatus("Filling new step fields...");
       count += await runAllFillPasses(profile);
 
-      // If there's no next button (or we're on a confirmation page), stop
       if (!findNextOrSubmitButton()) break;
     }
 
+    clearStatus();
     showToast(count, platform);
     return count;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // LIVE STATUS INDICATOR (shown while fill is in progress)
+  // ═══════════════════════════════════════════════════════════════════════════════
+  function showStatus(msg) {
+    let el = document.getElementById("eazyapply-status");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "eazyapply-status";
+      el.style.cssText = `
+        position:fixed;bottom:80px;right:20px;z-index:2147483647;
+        background:#18181b;border:1px solid #3f3f46;color:#a1a1aa;
+        border-radius:8px;padding:7px 14px;
+        font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+        font-size:12px;font-weight:500;box-shadow:0 2px 12px rgba(0,0,0,.3);
+        pointer-events:none;white-space:nowrap;
+      `;
+      document.body.appendChild(el);
+    }
+    el.textContent = "⚡ " + msg;
+  }
+
+  function clearStatus() {
+    document.getElementById("eazyapply-status")?.remove();
   }
 
   // ═══════════════════════════════════════════════════════════════════════════════
