@@ -13,7 +13,8 @@
     "https://*.myworkdayjobs.com/*",
     "https://*.wd1.myworkdayjobs.com/*",
     "https://*.wd3.myworkdayjobs.com/*",
-    "https://*.wd5.myworkdayjobs.com/*"
+    "https://*.wd5.myworkdayjobs.com/*",
+    "https://eazyapply-app.vercel.app/*"
   ],
   "externally_connectable": {
     "matches": [
