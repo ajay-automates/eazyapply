@@ -276,7 +276,33 @@
       // Skip controls with no keyword match — avoids clicking false-positive "Select…" elements
       if (!desiredValue) continue;
 
-      // ── Open the dropdown using 3 methods in order ───────────────────────
+      // ── Pre-open snapshot + direct listbox ID ────────────────────────────
+      // Snapshot existing listboxes so we can find NEWLY appeared ones after clicking.
+      // Also grab the inner combobox input — React-Select sets aria-controls on it pointing
+      // directly to its listbox element by ID (the most reliable locator).
+      const preExistingListboxes = new Set(document.querySelectorAll('[role="listbox"]'));
+      const innerInput = control.querySelector('input[aria-controls], input[aria-owns], input[role="combobox"]');
+      const listboxId = innerInput?.getAttribute('aria-controls') || innerInput?.getAttribute('aria-owns');
+
+      // Helper: find the newly opened listbox (not a pre-existing stale one)
+      const findNewMenu = () => {
+        // 1. By direct ID link from aria-controls (most reliable)
+        if (listboxId) {
+          const el = document.getElementById(listboxId);
+          if (el) return el;
+        }
+        // 2. Any listbox that wasn't in the DOM before we clicked
+        for (const el of document.querySelectorAll('[role="listbox"]')) {
+          if (!preExistingListboxes.has(el)) return el;
+        }
+        // 3. Visible listbox tall enough to contain options (≥30px)
+        for (const el of document.querySelectorAll('[role="listbox"]')) {
+          if (el.getBoundingClientRect().height >= 30) return el;
+        }
+        return null;
+      };
+
+      // ── Open the dropdown (3 methods) ────────────────────────────────────
       let opened = false;
 
       // Method A: Click the dropdown indicator arrow (most precise target)
@@ -286,27 +312,24 @@
       if (indicator) {
         indicator.click();
         await sleep(400);
-        opened = !!(document.querySelector('[role="listbox"]') || document.querySelector('[class*="select__menu"], [class*="-menu"]'));
+        opened = !!(findNewMenu());
       }
 
       // Method B: Plain click on the control div
       if (!opened) {
         control.click();
         await sleep(600);
-        opened = !!(document.querySelector('[role="listbox"]') || document.querySelector('[class*="select__menu"], [class*="-menu"]'));
+        opened = !!(findNewMenu());
       }
 
       // Method C: Focus internal input + ArrowDown keyboard event
-      if (!opened) {
-        const innerInput = control.querySelector("input");
-        if (innerInput) {
-          innerInput.focus();
-          innerInput.dispatchEvent(new KeyboardEvent("keydown", {
-            key: "ArrowDown", keyCode: 40, code: "ArrowDown", bubbles: true, cancelable: true
-          }));
-          await sleep(400);
-          opened = !!(document.querySelector('[role="listbox"]') || document.querySelector('[class*="select__menu"], [class*="-menu"]'));
-        }
+      if (!opened && innerInput) {
+        innerInput.focus();
+        innerInput.dispatchEvent(new KeyboardEvent("keydown", {
+          key: "ArrowDown", keyCode: 40, code: "ArrowDown", bubbles: true, cancelable: true
+        }));
+        await sleep(400);
+        opened = !!(findNewMenu());
       }
 
       if (!opened) {
@@ -314,31 +337,28 @@
         continue;
       }
 
-      // ── Find the open menu + poll for options (up to 1.2s) ───────────────
-      // offsetParent is null for position:fixed menus — use getBoundingClientRect instead
+      // ── Poll for options in the newly opened menu (up to 1s) ─────────────
       let menu = null;
       let options = [];
-      for (let w = 0; w < 12; w++) {
+      for (let w = 0; w < 10; w++) {
         await sleep(100);
-        menu =
-          control.querySelector('[role="listbox"]') ||
-          control.parentElement?.querySelector('[role="listbox"]') ||
-          document.body.querySelector('[role="listbox"]') ||
-          document.querySelector('[class*="select__menu"], [class*="Select__menu"], [class*="-menu"]');
+        menu = findNewMenu();
         if (menu) {
-          options = Array.from(
-            menu.querySelectorAll('[role="option"], [class*="select__option"], [class*="Option"], [class*="-option"]')
-          ).filter(o => {
-            const r = o.getBoundingClientRect();
-            return r.width > 0 || r.height > 0;
-          });
+          // No visibility filter — trust role="option"; fixed-position menus have offsetParent=null
+          options = Array.from(menu.querySelectorAll('[role="option"]'));
+          if (options.length === 0) {
+            // Some builds don't use role="option" — try class-based fallback
+            options = Array.from(menu.querySelectorAll(
+              '[class*="select__option"], [class*="Option"], [class*="-option"]'
+            ));
+          }
           if (options.length > 0) break;
         }
       }
 
-      console.log("[EazyApply] Menu open:", options.length, "options. Desired:", desiredValue);
+      console.log("[EazyApply] Menu open:", options.length, "options. Desired:", desiredValue, "listboxId:", listboxId);
 
-      if (!options.length) { document.body.click(); await sleep(150); continue; }
+      if (!options.length) { document.body.click(); await sleep(200); continue; }
 
       // ── Pick the best option ─────────────────────────────────────────────
       let picked = false;
