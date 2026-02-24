@@ -314,7 +314,7 @@ export default function DashboardPage() {
     if (typeof window !== "undefined" && (window as any).chrome?.runtime?.sendMessage) {
       try {
         (window as any).chrome.runtime.sendMessage(
-          "EAZYAPPLY_EXTENSION_ID",
+          "incphpkcklfffpmmefjahgacclaabgfp",
           { action: "SYNC_PROFILE", profile },
         );
       } catch (e) {
