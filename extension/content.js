@@ -189,29 +189,28 @@
       { kw: ["country"], val: profile.country || "United States" },
     ];
 
-    // ── Collect all dropdown controls using 4 strategies ────────────────────
+    // ── Collect React-Select control divs ────────────────────────────────────
     const controls = new Set();
 
-    // Strategy 1: React-Select puts role="combobox" on its hidden input.
-    // Walk up the DOM to find the actual clickable control container.
+    // Strategy 1: Walk up from each combobox input until we find the element
+    // that contains BOTH the input AND a dropdown indicator (aria-hidden="true").
+    // This is the React-Select "control" div — one level above "ValueContainer".
+    //
+    // WHY NOT class-name matching: Greenhouse uses hashed CSS (css-abc123-valuecontainer).
+    // cls.includes("container") matches "valuecontainer" — the WRONG level (no indicator).
+    // The control div one level higher contains both the input (via ValueContainer child)
+    // AND the indicator (via IndicatorsContainer sibling of ValueContainer).
     for (const input of document.querySelectorAll('input[role="combobox"]')) {
       if (input.offsetParent === null) continue;
-      let el = input.parentElement;
-      let found = false;
-      for (let i = 0; i < 5 && el && el !== document.body; i++) {
-        const cls = (el.className || "").toLowerCase();
-        if (cls.includes("control") || cls.includes("container") ||
-            cls.includes("select") || el.getAttribute("role") === "combobox") {
+      let el = input.parentElement; // starts at ValueContainer
+      for (let i = 0; i < 6 && el && el !== document.body; i++) {
+        // Control div: has combobox input (inside) AND aria-hidden indicator (sibling path).
+        // ValueContainer: has input but NO indicator → querySelector returns null → skip.
+        if (el.querySelector('input[role="combobox"]') && el.querySelector('[aria-hidden="true"]')) {
           controls.add(el);
-          found = true;
           break;
         }
         el = el.parentElement;
-      }
-      // Fallback: 3 levels up regardless of class
-      if (!found) {
-        const ctrl = input.parentElement?.parentElement?.parentElement;
-        if (ctrl && ctrl !== document.body) controls.add(ctrl);
       }
     }
 
@@ -225,20 +224,6 @@
       '[class*="select__control"], [class*="Select__control"], [class*="react-select"]'
     )) {
       if (el.offsetParent !== null) controls.add(el);
-    }
-
-    // Strategy 4 (text-based — catches any ATS): find ANY visible element showing
-    // a "Select..." placeholder. This works regardless of the component library.
-    for (const el of document.querySelectorAll("div, span")) {
-      if (el.offsetParent === null) continue;
-      if (el.children.length > 3) continue; // skip containers
-      const txt = (el.textContent || "").trim();
-      if (!/^(select\.{0,3}|choose\.{0,3}|-- ?select ?--|please select)$/i.test(txt)) continue;
-      // Walk up to find the clickable parent
-      const clickable =
-        el.closest('[class*="control"], [class*="select"], [role="combobox"], [aria-haspopup]') ||
-        el.parentElement?.parentElement;
-      if (clickable && clickable !== document.body) controls.add(clickable);
     }
 
     showStatus(`Filling ${controls.size} dropdown(s)...`);
