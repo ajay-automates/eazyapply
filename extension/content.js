@@ -603,6 +603,8 @@
     if (url.includes("linkedin.com")) return "linkedin";
     if (url.includes("lever.co")) return "lever";
     if (url.includes("myworkdayjobs.com") || url.includes("workday.com")) return "workday";
+    if (url.includes("indeed.com")) return "indeed";
+    if (url.includes("ashbyhq.com")) return "ashby";
     return "generic";
   }
 
@@ -755,10 +757,29 @@
   function runStructuredFill(profile) {
     let count = 0;
     const m = getMappings(profile);
+    const platform = detectPlatform();
 
     // Lever: full name in single field
-    if (detectPlatform() === "lever") {
+    if (platform === "lever") {
       const nameEl = document.querySelector('input[name="name"]');
+      if (nameEl && !nameEl.value) {
+        setNativeValue(nameEl, [profile.firstName, profile.lastName].filter(Boolean).join(" "));
+        count++;
+      }
+    }
+
+    // Indeed: full name in single field
+    if (platform === "indeed") {
+      const nameEl = document.querySelector('input[data-testid="input-applicant.name"], input[name="applicant.name"], input[aria-label*="name" i]');
+      if (nameEl && !nameEl.value) {
+        setNativeValue(nameEl, [profile.firstName, profile.lastName].filter(Boolean).join(" "));
+        count++;
+      }
+    }
+
+    // Ashby: uses standard HTML inputs but with specific class names
+    if (platform === "ashby") {
+      const nameEl = document.querySelector('input[name="name"], input[placeholder*="name" i]');
       if (nameEl && !nameEl.value) {
         setNativeValue(nameEl, [profile.firstName, profile.lastName].filter(Boolean).join(" "));
         count++;

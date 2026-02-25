@@ -14,6 +14,8 @@
     "https://*.wd1.myworkdayjobs.com/*",
     "https://*.wd3.myworkdayjobs.com/*",
     "https://*.wd5.myworkdayjobs.com/*",
+    "https://www.indeed.com/*",
+    "https://apply.ashbyhq.com/*",
     "https://eazyapply-app.vercel.app/*"
   ],
   "externally_connectable": {
@@ -44,7 +46,9 @@
         "https://*.myworkdayjobs.com/*",
         "https://*.wd1.myworkdayjobs.com/*",
         "https://*.wd3.myworkdayjobs.com/*",
-        "https://*.wd5.myworkdayjobs.com/*"
+        "https://*.wd5.myworkdayjobs.com/*",
+        "https://www.indeed.com/*",
+        "https://apply.ashbyhq.com/*"
       ],
       "js": ["content.js"],
       "run_at": "document_idle",
