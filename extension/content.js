@@ -570,11 +570,31 @@
     const demographicKws = ["ethnicity", "race", "gender", "veteran", "disability",
       "community", "communities", "belong", "identity", "orientation", "transgender", "pronouns"];
 
-    // Group checkboxes by their nearest fieldset / question container
+    // Helper: get label text for a checkbox, handling no-id cases (cb.name or wrapping label)
+    function getCbLabel(cb) {
+      if (cb.id) {
+        const lbl = document.querySelector(`label[for="${CSS.escape(cb.id)}"]`);
+        if (lbl) return (lbl.innerText || lbl.textContent || "").toLowerCase().trim();
+      }
+      // Wrapping label
+      const wrapping = cb.closest("label");
+      if (wrapping) return (wrapping.innerText || wrapping.textContent || "").toLowerCase().trim();
+      // Sibling span/label
+      const sibling = cb.parentElement?.querySelector("label, span");
+      if (sibling) return (sibling.innerText || sibling.textContent || "").toLowerCase().trim();
+      // Fallback to name attribute
+      return (cb.name || cb.value || "").toLowerCase().trim();
+    }
+
+    // Group by fieldset first (Ashby), then by nearest meaningful container
     const groups = new Map();
     for (const cb of allCheckboxes) {
-      const container = cb.closest("fieldset, [class*='question'], [class*='field'], [class*='group'], li, div")
-        || cb.parentElement;
+      // Walk up to find the correct question block — prefer fieldset, then _fieldEntry, then _yesno
+      const container =
+        cb.closest("fieldset") ||
+        cb.closest("[class*='fieldEntry'], [class*='yesno'], [class*='question'], [class*='group']") ||
+        cb.parentElement?.parentElement?.parentElement ||
+        cb.parentElement;
       if (!groups.has(container)) groups.set(container, []);
       groups.get(container).push(cb);
     }
@@ -583,23 +603,21 @@
       // Already has at least one checked — skip entirely
       if (cbs.some(cb => cb.checked)) continue;
 
-      const groupText = (container?.innerText || container?.textContent || "").toLowerCase();
+      // Get question text from legend (fieldset) or container text
+      const legend = container.querySelector("legend, [class*='legend'], [class*='label']");
+      const groupText = (legend?.innerText || legend?.textContent || container?.innerText || container?.textContent || "").toLowerCase().slice(0, 200);
       const isDemographic = demographicKws.some(k => groupText.includes(k));
 
       if (isDemographic) {
-        // For demographic groups: try to match profile data, else pick "I prefer not to answer" / "None of the above"
         const p = profile || {};
         const ethnicity = (Array.isArray(p.ethnicity) ? p.ethnicity[0] : p.ethnicity || p.race || "").toLowerCase();
-        const veteran = (p.veteranStatus || "").toLowerCase();
-        const disability = (p.disabilityStatus || "").toLowerCase();
 
         let picked = false;
 
-        // Try to match each checkbox label against profile data
+        // Try to match ethnicity
         if (ethnicity && groupText.includes("ethnic")) {
           for (const cb of cbs) {
-            const lbl = document.querySelector(`label[for="${CSS.escape(cb.id)}"]`);
-            const lblText = (lbl?.innerText || lbl?.textContent || cb.value || "").toLowerCase();
+            const lblText = getCbLabel(cb);
             if (lblText && ethnicity.split(/[\s,]+/).some(word => word.length > 2 && lblText.includes(word))) {
               cb.click(); picked = true; count++; break;
             }
@@ -608,51 +626,31 @@
 
         if (!picked) {
           // Prefer "I prefer not to answer" or "None of the above"
-          const safe = cbs.find(cb => {
-            const lbl = document.querySelector(`label[for="${CSS.escape(cb.id)}"]`);
-            const t = (lbl?.innerText || lbl?.textContent || cb.value || "").toLowerCase();
-            return /prefer not|i prefer|none of the above|no answer|decline/i.test(t);
-          });
+          const safe = cbs.find(cb => /prefer not|i prefer|none of the above|no answer|decline/i.test(getCbLabel(cb)));
           if (safe) { safe.click(); count++; }
           // else skip — don't blindly check all
         }
 
       } else if (cbs.length === 1) {
         // Single standalone checkbox (consent/acknowledge) — safe to check
-        const lbl = document.querySelector(`label[for="${CSS.escape(cbs[0].id)}"]`);
-        const t = (lbl?.innerText || lbl?.textContent || cbs[0].value || "").toLowerCase();
-        const isConsent = /acknowledge|confirm|agree|consent|certif|accept/i.test(t);
+        const isConsent = /acknowledge|confirm|agree|consent|certif|accept/i.test(getCbLabel(cbs[0]));
         if (isConsent) { cbs[0].click(); count++; }
 
       } else {
-        // Multi-option non-demographic group — pick the most positive single answer
-        // For work auth / relocation questions encoded as checkboxes
         const isWorkAuth = /authoriz|right to work|legally|work in/i.test(groupText);
         const isSponsorship = /sponsor/i.test(groupText);
-        const isRelocation = /reloc|move|relocate/i.test(groupText);
 
         if (isWorkAuth) {
-          const yes = cbs.find(cb => {
-            const lbl = document.querySelector(`label[for="${CSS.escape(cb.id)}"]`);
-            return /^yes/i.test((lbl?.innerText || cb.value || "").trim());
-          });
+          const yes = cbs.find(cb => /^yes/i.test(getCbLabel(cb)));
           if (yes) { yes.click(); count++; }
         } else if (isSponsorship) {
-          const no = cbs.find(cb => {
-            const lbl = document.querySelector(`label[for="${CSS.escape(cb.id)}"]`);
-            return /^no/i.test((lbl?.innerText || cb.value || "").trim());
-          });
+          const no = cbs.find(cb => /^no/i.test(getCbLabel(cb)));
           if (no) { no.click(); count++; }
-        } else if (isRelocation) {
-          // skip — let profile radio/select handle it
         } else {
-          // Unknown multi-option group — pick "None of the above" or "I prefer not to answer" to be safe
-          const safe = cbs.find(cb => {
-            const lbl = document.querySelector(`label[for="${CSS.escape(cb.id)}"]`);
-            const t = (lbl?.innerText || lbl?.textContent || cb.value || "").toLowerCase();
-            return /prefer not|none of the above|no answer|decline/i.test(t);
-          });
+          // Unknown multi-option — pick "None of the above" / "I prefer not to answer" to be safe
+          const safe = cbs.find(cb => /prefer not|none of the above|no answer|decline/i.test(getCbLabel(cb)));
           if (safe) { safe.click(); count++; }
+          // else skip
         }
       }
     }
