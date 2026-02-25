@@ -9,9 +9,11 @@
   function setNativeValue(el, value) {
     if (!el || value === null || value === undefined) return;
     try {
-      const proto = el.tagName === "TEXTAREA"
-        ? window.HTMLTextAreaElement.prototype
-        : window.HTMLInputElement.prototype;
+      let proto;
+      if (el.tagName === "TEXTAREA") proto = window.HTMLTextAreaElement.prototype;
+      else if (el.tagName === "SELECT") proto = window.HTMLSelectElement.prototype;
+      else proto = window.HTMLInputElement.prototype;
+
       const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
       if (setter) setter.call(el, String(value));
       else el.value = String(value);
@@ -28,7 +30,11 @@
   // ═══════════════════════════════════════════════════════════════════════════════
   function selectBestOption(el, desiredValue) {
     if (!el || !desiredValue) return false;
-    const val = String(desiredValue).toLowerCase().trim();
+    // Normalize curly/smart apostrophes so "I don\u2019t wish" matches "i don't"
+    const normText = t => t.replace(/[\u2018\u2019\u201a\u201b]/g, "'")
+      .replace(/[\u201c\u201d]/g, '"')
+      .toLowerCase().trim();
+    const val = normText(String(desiredValue));
     const options = Array.from(el.options).filter(o => o.value !== "" && o.index !== 0);
     if (!options.length) return false;
 
@@ -37,20 +43,21 @@
     const isNo = val === "false" || val === "no";
 
     // Exact value match
-    for (const o of options) if (o.value.toLowerCase() === val) return applyNativeSelect(el, o);
+    for (const o of options) if (normText(o.value) === val) return applyNativeSelect(el, o);
     // Exact text match
-    for (const o of options) if (o.text.toLowerCase().trim() === val) return applyNativeSelect(el, o);
+    for (const o of options) if (normText(o.text) === val) return applyNativeSelect(el, o);
     // Text contains value
-    for (const o of options) if (o.text.toLowerCase().includes(val)) return applyNativeSelect(el, o);
+    for (const o of options) if (normText(o.text).includes(val)) return applyNativeSelect(el, o);
     // Value contains text (min 3 chars to avoid false positives)
-    for (const o of options) if (val.includes(o.text.toLowerCase().trim()) && o.text.length > 3) return applyNativeSelect(el, o);
+    for (const o of options) if (val.includes(normText(o.text)) && o.text.length > 3) return applyNativeSelect(el, o);
 
-    // Decline patterns
+    // Decline patterns (normalized)
     if (isDecline) {
       const patterns = ["don't wish", "do not wish", "prefer not", "decline", "no answer",
         "not to answer", "not wish", "rather not", "no response", "not applicable",
-        "not disclose", "choose not", "i don't", "not to self", "no, i prefer"];
-      for (const o of options) if (patterns.some(p => o.text.toLowerCase().includes(p))) return applyNativeSelect(el, o);
+        "not disclose", "choose not", "i don't", "not to self", "no, i prefer",
+        "wish to answer", "i prefer not"];
+      for (const o of options) if (patterns.some(p => normText(o.text).includes(p))) return applyNativeSelect(el, o);
       // Last resort for decline: pick last option
       return applyNativeSelect(el, options[options.length - 1]);
     }
@@ -66,9 +73,7 @@
   }
 
   function applyNativeSelect(el, option) {
-    el.value = option.value;
-    el.dispatchEvent(new Event("change", { bubbles: true }));
-    el.dispatchEvent(new Event("input", { bubbles: true }));
+    setNativeValue(el, option.value);
     return true;
   }
 
@@ -177,32 +182,34 @@
   async function fillReactSelects(profile) {
     let count = 0;
 
+    const m = getMappings(profile);
     const reactSelectMap = [
-      { kw: ["gender", "identify my gender", "gender identity"], val: profile.gender || "Decline to self-identify" },
-      { kw: ["transgender", "identify as transgender"], val: "Decline to self-identify" },
-      { kw: ["sexual orientation", "sexual identity"], val: "Decline to self-identify" },
-      { kw: ["ethnicity", "race", "racial", "ethnic background", "identify my ethnicity"], val: profile.race || "Decline to self-identify" },
-      { kw: ["veteran", "veteran status", "protected veteran"], val: profile.veteranStatus || "Decline to self-identify" },
-      { kw: ["disability", "physical disability", "disabilities"], val: profile.disabilityStatus || "Decline to self-identify" },
+      ...m.selects,
+      ...m.radios.map(r => ({ kw: r.kw, val: r.val ? (r.yes?.[0] || "Yes") : (r.no?.[0] || "No") })),
       { kw: ["pronouns", "preferred pronouns"], val: "Decline to self-identify" },
-      { kw: ["how did you hear", "hear about", "how did you find"], val: profile.howDidYouHear || "LinkedIn" },
-      { kw: ["country of residence", "country"], val: profile.country || "United States" },
+      { kw: ["transgender", "identify as transgender"], val: "Decline to self-identify" },
+      { kw: ["sexual orientation", "sexual identity"], val: "Decline to self-identify" }
     ];
 
-    // ── Iterate over combobox inputs directly (avoids the control-finding mess) ──
+    // ── Iterate over combobox inputs directly ──────────────────────────────
     //
-    // React-Select always renders: input[role="combobox"] → ValueContainer → control
+    // React-Select DOM structure (v4/v5):
     //
-    // REASON we don't walk up to find the "control" div anymore:
-    //   ValueContainer has a size-mirror <div aria-hidden="true">W</div> inside it
-    //   (used to auto-size the input width). Our old walk-up stopped at ValueContainer
-    //   because querySelector('[aria-hidden]') matched the size-mirror, not the indicator.
-    //   The result was the wrong ancestor being clicked (containing MULTIPLE dropdowns).
+    //   Control div                          ← click this; has indicator SVG child
+    //     ├── ValueContainer div
+    //     │     ├── InputWrapper div
+    //     │     │     ├── input[role="combobox"]   ← we start here
+    //     │     │     └── div[aria-hidden="true"]W  ← size-mirror (no SVG)
+    //     │     └── Placeholder / SingleValue
+    //     └── IndicatorsContainer
+    //           └── DropdownIndicator [aria-hidden="true"]
+    //                 └── svg ← real indicator (HAS svg child)
     //
-    // NEW approach: we know the input, we know its listboxId (from aria-controls),
-    // we know the control is input.parentElement.parentElement.
-    // We find the indicator as: control.querySelector('[aria-hidden="true"] svg')
-    //   — the real dropdown arrow has an SVG child; the size-mirror div does NOT.
+    // Walk: input → InputWrapper → ValueContainer → Control (3 levels up)
+    // The indicator SVG is inside IndicatorsContainer which is a SIBLING of ValueContainer.
+    // Previous bug: code walked only 2 levels (input → InputWrapper → "control"=ValueContainer),
+    // so querySelector('[aria-hidden] svg') on ValueContainer found nothing → indicator:false,
+    // and clicking ValueContainer missed the React onMouseDown on Control.
 
     const allInputs = Array.from(document.querySelectorAll('input[role="combobox"]'))
       .filter(inp => inp.offsetParent !== null);
@@ -211,8 +218,9 @@
     console.log("[EazyApply] fillReactSelects: found", allInputs.length, "combobox inputs");
 
     for (const input of allInputs) {
-      // React-Select: input → ValueContainer → control
-      const valueContainer = input.parentElement;
+      // 3-level walk: input → InputWrapper → ValueContainer → Control
+      const inputWrapper = input.parentElement;
+      const valueContainer = inputWrapper?.parentElement;
       const control = valueContainer?.parentElement;
       if (!control || control === document.body) continue;
 
@@ -235,14 +243,15 @@
       }
       if (!desiredValue) continue;
 
-      // Direct listbox ID from aria-controls (React-Select always sets this)
+      // aria-controls is only set when input is NOT hidden (React-Select v5 only sets it
+      // when the menu is open). Capture it here, but don't rely on it to open the menu.
       const listboxId = input.getAttribute('aria-controls') || input.getAttribute('aria-owns');
 
-      // The dropdown indicator SVG is inside control but NOT inside ValueContainer.
-      // Use '[aria-hidden="true"] svg' to find only the real indicator
-      // (the size-mirror div has no SVG child — it only contains text).
+      // Indicator SVG is in IndicatorsContainer — a direct child of Control (sibling of
+      // ValueContainer). With the 3-level walk, control IS the Control div, so
+      // querySelector('[aria-hidden="true"] svg') now finds the real arrow indicator.
       const indicator = control.querySelector('[aria-hidden="true"] svg, svg[aria-hidden="true"]')
-        ?.closest('[aria-hidden="true"]') || control.querySelector('[aria-hidden="true"]');
+        ?.closest('[aria-hidden="true"]') || null;
 
       // Snapshot existing listboxes before opening (to detect the NEWLY appeared one)
       const preExisting = new Set(document.querySelectorAll('[role="listbox"]'));
@@ -263,19 +272,21 @@
 
       console.log("[EazyApply] Trying:", desiredValue, "| listboxId:", listboxId, "| indicator:", !!indicator);
 
-      // ── Open the dropdown (3 methods) ──────────────────────────────────────
+      // ── Open the dropdown (4 methods) ──────────────────────────────────────
       let menu = null;
 
-      // Method A: Click the SVG indicator arrow (most reliable — avoids size-mirror)
+      // Method A: mousedown on the indicator SVG (React-Select uses onMouseDown, not onClick)
       if (indicator) {
-        indicator.click();
+        indicator.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+        indicator.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
         await sleep(500);
         menu = findNewMenu();
       }
 
-      // Method B: Click the control div
+      // Method B: mousedown on the control div (React-Select onControlMouseDown)
       if (!menu) {
-        control.click();
+        control.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+        control.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
         await sleep(600);
         menu = findNewMenu();
       }
@@ -286,6 +297,13 @@
         input.dispatchEvent(new KeyboardEvent("keydown", {
           key: "ArrowDown", keyCode: 40, code: "ArrowDown", bubbles: true, cancelable: true
         }));
+        await sleep(500);
+        menu = findNewMenu();
+      }
+
+      // Method D: plain click as last resort
+      if (!menu) {
+        control.click();
         await sleep(500);
         menu = findNewMenu();
       }
@@ -311,31 +329,59 @@
       if (!options.length) { document.body.click(); await sleep(200); continue; }
 
       // ── Pick the best option ─────────────────────────────────────────────────
+      // Normalize curly/smart apostrophes and quotes to straight variants before
+      // any string comparison. Greenhouse uses '\u2019' (right single quotation mark)
+      // in option text like "I don\u2019t wish to answer", which would never match
+      // our straight-apostrophe pattern "i don't" without normalization.
+      const norm = t => t.replace(/[\u2018\u2019\u201a\u201b]/g, "'")
+        .replace(/[\u201c\u201d]/g, '"')
+        .trim().toLowerCase();
+
       let picked = false;
-      const desired = desiredValue.toLowerCase();
+      const desired = norm(desiredValue);
       const isDecline = ["decline", "prefer not", "don't wish"].some(p => desired.includes(p));
 
+      // 1. Exact normalized match
       for (const opt of options) {
-        if (opt.textContent.trim().toLowerCase() === desired) { opt.click(); picked = true; break; }
+        if (norm(opt.textContent) === desired) { opt.click(); picked = true; break; }
       }
+      // 2. Partial normalized match
       if (!picked) {
         for (const opt of options) {
-          const t = opt.textContent.trim().toLowerCase();
+          const t = norm(opt.textContent);
           if (t.includes(desired) || desired.includes(t)) { opt.click(); picked = true; break; }
         }
       }
+      // 3. Decline pattern matching (normalized, expanded)
       if (!picked && isDecline) {
-        const dp = ["don't wish", "do not wish", "prefer not", "decline",
+        const dp = [
+          "don't wish", "do not wish", "prefer not", "decline",
           "no answer", "rather not", "not to answer", "choose not",
-          "not disclose", "not applicable", "i don't", "no response"];
+          "not disclose", "not applicable", "i don't", "no response",
+          "wish to answer", "not to self", "i prefer not",
+        ];
         for (const opt of options) {
-          if (dp.some(p => opt.textContent.trim().toLowerCase().includes(p))) {
-            opt.click(); picked = true; break;
-          }
+          const t = norm(opt.textContent);
+          if (dp.some(p => t.includes(p))) { opt.click(); picked = true; break; }
         }
       }
-
-      // Always fall back to first option — no dropdown should stay empty
+      // 4. For decline desired values, prefer a "No / not" option over "Yes"
+      //    (e.g. veteran status: "I am not a protected veteran" beats "Yes, I am a veteran")
+      if (!picked && isDecline) {
+        const notOpt = options.find(o => {
+          const t = norm(o.textContent);
+          return t.startsWith("no") || t.startsWith("i am not") || t.includes("not a veteran")
+            || t.includes("not protected");
+        });
+        if (notOpt) { notOpt.click(); picked = true; }
+      }
+      // 5. For decline desired values, try last option (Greenhouse typically puts
+      //    "Decline / I don't wish to answer" last in the list)
+      if (!picked && isDecline) {
+        options[options.length - 1].click();
+        picked = true;
+      }
+      // 6. True final fallback — first option
       if (!picked) { options[0].click(); picked = true; }
 
       if (picked) { count++; await sleep(400); }
@@ -410,6 +456,86 @@
     return count;
   }
 
+  async function fallbackFillReactSelects() {
+    let count = 0;
+    const allInputs = Array.from(document.querySelectorAll('input[role="combobox"]'))
+      .filter(inp => inp.offsetParent !== null);
+
+    for (const input of allInputs) {
+      const inputWrapper = input.parentElement;
+      const valueContainer = inputWrapper?.parentElement;
+      const control = valueContainer?.parentElement;
+      if (!control || control === document.body) continue;
+
+      const singleVal = valueContainer.querySelector('[class*="singleValue"], [class*="single-value"]');
+      if (singleVal && !/^(select|choose|pick)\b/i.test(singleVal.textContent.trim())) continue;
+
+      const listboxId = input.getAttribute('aria-controls') || input.getAttribute('aria-owns');
+      const indicator = control.querySelector('[aria-hidden="true"] svg, svg[aria-hidden="true"]')
+        ?.closest('[aria-hidden="true"]') || null;
+      const preExisting = new Set(document.querySelectorAll('[role="listbox"]'));
+
+      const findNewMenu = () => {
+        if (listboxId) {
+          const el = document.getElementById(listboxId);
+          if (el) return el;
+        }
+        for (const el of document.querySelectorAll('[role="listbox"]')) {
+          if (!preExisting.has(el)) return el;
+        }
+        for (const el of document.querySelectorAll('[role="listbox"]')) {
+          if (el.getBoundingClientRect().height >= 30) return el;
+        }
+        return null;
+      };
+
+      let menu = null;
+      if (indicator) {
+        indicator.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+        indicator.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+        await sleep(400); menu = findNewMenu();
+      }
+      if (!menu) {
+        control.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+        control.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+        await sleep(400); menu = findNewMenu();
+      }
+
+      if (!menu) continue;
+
+      let options = [];
+      for (let w = 0; w < 5 && !options.length; w++) {
+        await sleep(100);
+        if (listboxId) menu = document.getElementById(listboxId) || menu;
+        if (menu) options = Array.from(menu.querySelectorAll('[role="option"], [class*="select__option"], [class*="Option"]'));
+      }
+
+      const validOpts = options.filter(o => !/select|choose/i.test(o.textContent.trim()));
+      if (validOpts.length > 0) {
+        const yes = validOpts.find(o => /^yes/i.test(o.textContent.trim()));
+        (yes || validOpts[0]).click();
+        count++;
+        await sleep(400);
+      } else {
+        document.body.click();
+        await sleep(100);
+      }
+    }
+    return count;
+  }
+
+  function fallbackFillCheckboxes() {
+    let count = 0;
+    for (const cb of document.querySelectorAll('input[type="checkbox"]')) {
+      if (cb.offsetParent === null) continue;
+      if (!cb.checked) {
+        cb.click();
+        count++;
+      }
+    }
+    return count;
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════════
   // FIX #3: Confirm autocomplete suggestions (city, location fields)
   // ═══════════════════════════════════════════════════════════════════════════════
@@ -465,12 +591,16 @@
     return {
       inputs: [
         // Names
-        { kw: ["first_name", "first-name", "firstname", "given-name", "first name", "given name",
-                "preferred first", "legal first", "what is your preferred first",
-                "what is your first name", "legal given"], val: p.firstName },
-        { kw: ["last_name", "last-name", "lastname", "family-name", "last name", "surname",
-                "preferred last", "legal last", "what is your preferred last",
-                "what is your last name", "legal family", "legal surname"], val: p.lastName },
+        {
+          kw: ["first_name", "first-name", "firstname", "given-name", "first name", "given name",
+            "preferred first", "legal first", "what is your preferred first",
+            "what is your first name", "legal given"], val: p.firstName
+        },
+        {
+          kw: ["last_name", "last-name", "lastname", "family-name", "last name", "surname",
+            "preferred last", "legal last", "what is your preferred last",
+            "what is your last name", "legal family", "legal surname"], val: p.lastName
+        },
         { kw: ["full name", "your name", "legal name", "complete name", "candidate name"], val: fullName },
         // Contact
         { kw: ["email", "e-mail", "email address"], val: p.email },
@@ -510,12 +640,18 @@
         { kw: ["desired salary", "expected salary", "salary expectation", "compensation", "target salary"], val: p.desiredSalary },
         // Common questions
         { kw: ["cover letter"], val: p.coverLetterTemplate },
-        { kw: ["tell us about yourself", "about yourself", "summary", "elevator pitch",
-                "brief introduction", "introduce yourself", "professional summary"], val: p.elevatorPitch },
-        { kw: ["why this role", "why apply", "why are you interested",
-                "interest in this role", "why this position", "why do you want this"], val: p.whyThisRole },
-        { kw: ["why this company", "why us", "why our company",
-                "why do you want to work here", "interest in our company"], val: p.whyThisCompany },
+        {
+          kw: ["tell us about yourself", "about yourself", "summary", "elevator pitch",
+            "brief introduction", "introduce yourself", "professional summary"], val: p.elevatorPitch
+        },
+        {
+          kw: ["why this role", "why apply", "why are you interested",
+            "interest in this role", "why this position", "why do you want this"], val: p.whyThisRole
+        },
+        {
+          kw: ["why this company", "why us", "why our company",
+            "why do you want to work here", "interest in our company"], val: p.whyThisCompany
+        },
         { kw: ["greatest strength", "key strength", "what are your strengths"], val: p.greatestStrength },
         { kw: ["weakness", "area of improvement", "area for growth", "what are your weaknesses"], val: p.greatestWeakness },
         { kw: ["personal statement", "objective", "career objective", "professional objective"], val: p.personalStatement },
@@ -536,6 +672,8 @@
         { kw: ["citizenship", "residency status"], val: p.citizenship },
       ],
       selects: [
+        { kw: ["based in the usa", "based in us", "live in the us", "based in us"], val: "Yes" },
+        { kw: ["national pay range", "pay range", "compensation package", "feel comfortable moving forward", "salary range", "compensation expectation"], val: "Yes" },
         { kw: ["country"], val: p.country || "United States" },
         { kw: ["state", "province"], val: p.state },
         { kw: ["currency", "salary currency"], val: p.salaryCurrency || "USD" },
@@ -656,7 +794,7 @@
   // ═══════════════════════════════════════════════════════════════════════════════
   // PASS 4: Fallback — fill ALL remaining empty fields
   // ═══════════════════════════════════════════════════════════════════════════════
-  // (fallbackFillSelects and fallbackFillRadios defined above)
+  // (fallbackFillSelects, fallbackFillRadios, fallbackFillReactSelects, fallbackFillCheckboxes)
 
   // ═══════════════════════════════════════════════════════════════════════════════
   // RESUME UPLOAD
@@ -693,7 +831,7 @@
               input.dispatchEvent(new Event("change", { bubbles: true }));
               input.dispatchEvent(new Event("input", { bubbles: true }));
               count++;
-            } catch (e) {}
+            } catch (e) { }
           }
           resolve(count);
         } catch (e) { resolve(0); }
@@ -707,7 +845,7 @@
 
   // Find the Next / Submit button on the current page/step.
   function findNextOrSubmitButton() {
-    const nextRx   = /^(next|next step|next page|continue|save and continue|proceed|advance)$/i;
+    const nextRx = /^(next|next step|next page|continue|save and continue|proceed|advance)$/i;
     const submitRx = /^(submit|submit application|apply|apply now|send application|complete application|review and submit|review application|save & submit)$/i;
 
     const getText = el => (el.innerText || el.textContent || el.value || "").trim();
@@ -893,13 +1031,15 @@
     count += runStructuredFill(profile);
     showStatus("Filling dropdowns...");
     try { count += await fillReactSelects(profile); } catch (e) { console.warn("[EazyApply] React-Select error:", e); }
-    try { count += await confirmAutocompleteSuggestions(); } catch (e) {}
+    try { count += await confirmAutocompleteSuggestions(); } catch (e) { }
     showStatus("AI answering custom questions...");
     try { count += await runAIPass(profile); } catch (e) { console.warn("[EazyApply] AI pass error:", e); }
-    try { count += await fillResumeUpload(); } catch (e) {}
+    try { count += await fillResumeUpload(); } catch (e) { }
     count += fallbackFillSelects();
     count += fallbackFillRadios();
-    try { await sleep(400); count += await confirmAutocompleteSuggestions(); } catch (e) {}
+    try { await sleep(400); count += await confirmAutocompleteSuggestions(); } catch (e) { }
+    try { count += await fallbackFillReactSelects(); } catch (e) { console.warn("[EazyApply] fallbackReactSelect error:", e); }
+    count += fallbackFillCheckboxes();
     return count;
   }
 
@@ -912,7 +1052,7 @@
     count += await runAllFillPasses(profile);
 
     // ── Validation retry loop ───────────────────────────────────────────────
-    const MAX_STEPS   = 5;
+    const MAX_STEPS = 5;
     const MAX_RETRIES = 3;
 
     for (let step = 0; step < MAX_STEPS; step++) {
@@ -944,7 +1084,7 @@
         showStatus(`Fixing ${errors.length} error(s) (attempt ${retry + 1})...`);
 
         for (const field of errors) {
-          try { await fixSingleError(field, profile); } catch (_) {}
+          try { await fixSingleError(field, profile); } catch (_) { }
         }
         await sleep(400);
       }
@@ -1040,7 +1180,13 @@
           showToast(0, detectPlatform());
           btn.textContent = "⚡"; btn.style.background = "#4ade80"; return;
         }
+        // Fill the main frame
         const count = await fillForms(res.profile);
+        // Also fill any iframes on the page (e.g. Greenhouse demographics iframe).
+        // background.js uses webNavigation.getAllFrames to send FILL_FORMS to each subframe.
+        chrome.runtime.sendMessage({ action: "FILL_ALL_FRAMES" }, () => {
+          chrome.runtime.lastError; // suppress unchecked error
+        });
         btn.textContent = count > 0 ? "✓" : "⚠️";
         btn.style.background = count > 0 ? "#4ade80" : "#f87171";
         setTimeout(() => { btn.textContent = "⚡"; btn.style.background = "#4ade80"; }, 3000);
@@ -1066,7 +1212,17 @@
   // ═══════════════════════════════════════════════════════════════════════════════
   // INIT + SPA NAVIGATION RE-INJECT
   // ═══════════════════════════════════════════════════════════════════════════════
-  function init() { injectButton(); }
+  function init() {
+    // When running inside an iframe (e.g. Greenhouse demographics iframe),
+    // do NOT inject the ⚡ button — the main frame already has one.
+    // The FILL_FORMS message listener above still works in iframes, so
+    // background.js can reach this frame via FILL_ALL_FRAMES → getAllFrames.
+    if (window !== window.top) {
+      console.log("[EazyApply] iframe detected — skipping button, awaiting FILL_FORMS message");
+      return;
+    }
+    injectButton();
+  }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
   else init();
 

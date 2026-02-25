@@ -46,6 +46,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  // Broadcast FILL_FORMS to all subframes (iframes) in the active tab
+  // Used so the ⚡ button in the main frame can reach Greenhouse's demographic iframe.
+  if (message.action === "FILL_ALL_FRAMES") {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const tabId = tabs[0]?.id;
+      if (!tabId) { sendResponse({ done: true }); return; }
+      chrome.webNavigation.getAllFrames({ tabId }, (frames) => {
+        if (!frames) { sendResponse({ done: true }); return; }
+        const subframes = frames.filter(f => f.frameId !== 0);
+        if (subframes.length === 0) { sendResponse({ done: true }); return; }
+        let remaining = subframes.length;
+        for (const frame of subframes) {
+          chrome.tabs.sendMessage(
+            tabId,
+            { action: "FILL_FORMS" },
+            { frameId: frame.frameId },
+            () => { chrome.runtime.lastError; if (--remaining === 0) sendResponse({ done: true }); }
+          );
+        }
+      });
+    });
+    return true;
+  }
+
   // AI-powered custom question answering
   if (message.action === "ANSWER_QUESTIONS") {
     const { questions, profile } = message;

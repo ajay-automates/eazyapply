@@ -3,7 +3,7 @@
   "name": "EazyApply — Auto-Fill Job Applications",
   "version": "1.0.0",
   "description": "Auto-fill job applications on Greenhouse, LinkedIn, Lever, Workday in one click.",
-  "permissions": ["storage", "activeTab", "scripting"],
+  "permissions": ["storage", "activeTab", "scripting", "webNavigation"],
   "host_permissions": [
     "https://boards.greenhouse.io/*",
     "https://*.greenhouse.io/*",
