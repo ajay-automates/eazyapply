@@ -611,6 +611,7 @@
         { kw: ["state", "province", "region"], val: p.state },
         { kw: ["zip", "postal", "postcode", "zip code"], val: p.zipCode },
         { kw: ["country"], val: p.country },
+        { kw: ["location", "current location", "city, state"], val: p.city && p.state ? `${p.city}, ${p.state}` : (p.city || p.address) },
         // Links
         { kw: ["linkedin", "linkedin url", "linkedin profile", "linkedin.com"], val: p.linkedinUrl },
         { kw: ["github", "github url", "github.com"], val: p.githubUrl },
