@@ -3,7 +3,12 @@
   "name": "EazyApply — Auto-Fill Job Applications",
   "version": "1.0.0",
   "description": "Auto-fill job applications on Greenhouse, LinkedIn, Lever, Workday in one click.",
-  "permissions": ["storage", "activeTab", "scripting", "webNavigation"],
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "webNavigation"
+  ],
   "host_permissions": [
     "https://boards.greenhouse.io/*",
     "https://*.greenhouse.io/*",
@@ -15,7 +20,8 @@
     "https://*.wd3.myworkdayjobs.com/*",
     "https://*.wd5.myworkdayjobs.com/*",
     "https://www.indeed.com/*",
-    "https://apply.ashbyhq.com/*",
+    "https://jobs.ashbyhq.com/*",
+    "https://*.ashbyhq.com/*",
     "https://eazyapply-app.vercel.app/*"
   ],
   "externally_connectable": {
@@ -33,7 +39,9 @@
         "https://eazyapply-app.vercel.app/*",
         "http://localhost:3000/*"
       ],
-      "js": ["dashboard-sync.js"],
+      "js": [
+        "dashboard-sync.js"
+      ],
       "run_at": "document_idle"
     },
     {
@@ -48,9 +56,12 @@
         "https://*.wd3.myworkdayjobs.com/*",
         "https://*.wd5.myworkdayjobs.com/*",
         "https://www.indeed.com/*",
-        "https://apply.ashbyhq.com/*"
+        "https://jobs.ashbyhq.com/*",
+        "https://*.ashbyhq.com/*"
       ],
-      "js": ["content.js"],
+      "js": [
+        "content.js"
+      ],
       "run_at": "document_idle",
       "all_frames": true
     }
