@@ -239,14 +239,9 @@
       const singleVal = valueContainer.querySelector('[class*="singleValue"], [class*="single-value"], [class*="multiValue"], [class*="multi-value"]');
       if (singleVal && !/^(select|choose|pick)\b/i.test(singleVal.textContent.trim())) continue;
 
-      // Get keyword context from the SURROUNDING form field — go ABOVE the control
-      // to reach the label. We do NOT use control.textContent because it includes
-      // option texts from the hidden size-mirror and confuses keyword matching.
-      const formField = control.parentElement?.closest(
-        '[class*="field"], [class*="question"], [class*="form-group"], ' +
-        '.application-question, li'
-      ) || control.parentElement?.parentElement?.parentElement;
-      const ctxText = (formField?.innerText || formField?.textContent || "").toLowerCase().slice(0, 300);
+      // Use our precise utility to get context for keyword matching, rather than
+      // crawling up to potentially massive containers that bleed adjacent forms.
+      const ctxText = getElementContext(input);
 
       let desiredValue = null;
       for (const m of reactSelectMap) {
