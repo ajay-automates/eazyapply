@@ -272,6 +272,19 @@
 
       console.log("[EazyApply] Trying:", desiredValue, "| listboxId:", listboxId, "| indicator:", !!indicator);
 
+      // For autocompletes (like Location), inject text first to trigger options fetching from Google API
+      const isLocation = ["location", "city"].some(k => ctxText.includes(k));
+      if (isLocation) {
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+        if (setter) setter.call(input, desiredValue);
+        else input.value = desiredValue;
+
+        input.dispatchEvent(new Event('focus', { bubbles: true }));
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
+        await sleep(800); // Give API time to respond
+      }
+
       // ── Open the dropdown (4 methods) ──────────────────────────────────────
       let menu = null;
 
