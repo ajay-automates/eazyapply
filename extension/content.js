@@ -184,8 +184,8 @@
 
     const m = getMappings(profile);
     const reactSelectMap = [
-      ...m.selects,
       ...m.inputs,
+      ...m.selects,
       ...m.radios.map(r => ({ kw: r.kw, val: r.val ? (r.yes?.[0] || "Yes") : (r.no?.[0] || "No") })),
       { kw: ["pronouns", "preferred pronouns"], val: profile.pronouns || "Decline to self-identify" },
       { kw: ["transgender", "identify as transgender"], val: profile.transgender || "No" },
@@ -347,9 +347,13 @@
       // any string comparison. Greenhouse uses '\u2019' (right single quotation mark)
       // in option text like "I don\u2019t wish to answer", which would never match
       // our straight-apostrophe pattern "i don't" without normalization.
-      const norm = t => t.replace(/[\u2018\u2019\u201a\u201b]/g, "'")
-        .replace(/[\u201c\u201d]/g, '"')
-        .trim().toLowerCase();
+      const norm = t => {
+        if (!t) return "";
+        let s = Array.isArray(t) ? t[0] : String(t);
+        return s.replace(/[\u2018\u2019\u201a\u201b]/g, "'")
+          .replace(/[\u201c\u201d]/g, '"')
+          .trim().toLowerCase();
+      };
 
       let picked = false;
       const desired = norm(desiredValue);
