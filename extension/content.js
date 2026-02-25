@@ -974,12 +974,7 @@
 
   // Fix a single errored field using profile data or sensible fallbacks.
   async function fixSingleError(el, profile) {
-    const containerEl = el.closest(
-      '[class*="field"], [class*="form-group"], [class*="input-group"], li, fieldset'
-    ) || el.parentElement;
-    const ctx = (getElementContext(el) + " " +
-      (containerEl ? (containerEl.innerText || containerEl.textContent || "") : "")
-    ).toLowerCase();
+    const ctx = getElementContext(el).toLowerCase();
 
     // ── Native <select> ──────────────────────────────────────────────────────
     if (el.tagName === "SELECT") {
@@ -1011,7 +1006,7 @@
     }
 
     // ── Text input / Textarea ────────────────────────────────────────────────
-    if (el.tagName === "INPUT" || el.tagName === "TEXTAREA") {
+    if ((el.tagName === "INPUT" && el.getAttribute("role") !== "combobox") || el.tagName === "TEXTAREA") {
       if (el.value && el.value.trim().length > 0) return; // already has content
       const m = getMappings(profile);
       for (const { kw, val } of m.inputs) {
