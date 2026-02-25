@@ -225,7 +225,7 @@
       if (!control || control === document.body) continue;
 
       // Skip if already has a real selected value (not a placeholder)
-      const singleVal = valueContainer.querySelector('[class*="singleValue"], [class*="single-value"]');
+      const singleVal = valueContainer.querySelector('[class*="singleValue"], [class*="single-value"], [class*="multiValue"], [class*="multi-value"]');
       if (singleVal && !/^(select|choose|pick)\b/i.test(singleVal.textContent.trim())) continue;
 
       // Get keyword context from the SURROUNDING form field — go ABOVE the control
@@ -480,7 +480,7 @@
       const control = valueContainer?.parentElement;
       if (!control || control === document.body) continue;
 
-      const singleVal = valueContainer.querySelector('[class*="singleValue"], [class*="single-value"]');
+      const singleVal = valueContainer.querySelector('[class*="singleValue"], [class*="single-value"], [class*="multiValue"], [class*="multi-value"]');
       if (singleVal && !/^(select|choose|pick)\b/i.test(singleVal.textContent.trim())) continue;
 
       const listboxId = input.getAttribute('aria-controls') || input.getAttribute('aria-owns');
