@@ -185,10 +185,11 @@
     const m = getMappings(profile);
     const reactSelectMap = [
       ...m.selects,
+      ...m.inputs,
       ...m.radios.map(r => ({ kw: r.kw, val: r.val ? (r.yes?.[0] || "Yes") : (r.no?.[0] || "No") })),
-      { kw: ["pronouns", "preferred pronouns"], val: "Decline to self-identify" },
-      { kw: ["transgender", "identify as transgender"], val: "Decline to self-identify" },
-      { kw: ["sexual orientation", "sexual identity"], val: "Decline to self-identify" }
+      { kw: ["pronouns", "preferred pronouns"], val: profile.pronouns || "Decline to self-identify" },
+      { kw: ["transgender", "identify as transgender"], val: profile.transgender || "No" },
+      { kw: ["sexual orientation", "sexual identity"], val: profile.sexualOrientation || "Heterosexual" }
     ];
 
     // ── Iterate over combobox inputs directly ──────────────────────────────
@@ -696,12 +697,12 @@
         { kw: ["how did you hear", "hear about", "how did you find"], val: p.howDidYouHear || "LinkedIn" },
         // Demographics (native selects — some ATS use these)
         { kw: ["gender", "identify my gender", "gender identity"], val: p.gender || "Decline to self-identify" },
-        { kw: ["transgender", "identify as transgender"], val: "Decline to self-identify" },
-        { kw: ["sexual orientation", "sexual identity"], val: "Decline to self-identify" },
-        { kw: ["ethnicity", "race", "racial", "ethnic background"], val: p.race || "Decline to self-identify" },
+        { kw: ["transgender", "identify as transgender"], val: p.transgender || "No" },
+        { kw: ["sexual orientation", "sexual identity"], val: p.sexualOrientation || "Heterosexual" },
+        { kw: ["ethnicity", "race", "racial", "ethnic background"], val: p.ethnicity || p.race || "Decline to self-identify" },
         { kw: ["veteran", "veteran status", "protected veteran"], val: p.veteranStatus || "Decline to self-identify" },
         { kw: ["disability", "physical disability"], val: p.disabilityStatus || "Decline to self-identify" },
-        { kw: ["pronouns"], val: "Decline to self-identify" },
+        { kw: ["pronouns"], val: p.pronouns || "Decline to self-identify" },
         { kw: ["criminal", "criminal record", "felony"], val: p.criminalRecord || "No" },
         { kw: ["authorized to work", "right to work", "legally authorized", "eligible to work"], val: p.workAuthorized ? "Yes" : "No" },
         { kw: ["require sponsor", "sponsorship required", "need sponsorship", "visa sponsorship"], val: p.requiresSponsorship ? "Yes" : "No" },
