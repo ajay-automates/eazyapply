@@ -109,8 +109,18 @@
   }
 
   // ═══════════════════════════════════════════════════════════════════════════════
-  // FINDERS: locate elements by keyword
+  // FINDERS & MATCHERS
   // ═══════════════════════════════════════════════════════════════════════════════
+  function matchKeywords(ctxText, keywords) {
+    if (!ctxText) return false;
+    const normCtx = ctxText.toLowerCase();
+    return keywords.some(k => {
+      const escaped = k.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      // allow flexible boundaries (like dashes or parenthesis) by relying on \b
+      return new RegExp('\\b' + escaped + '\\b', 'i').test(normCtx);
+    });
+  }
+
   function findAllInputs(keywords) {
     return Array.from(document.querySelectorAll(
       "input:not([type=hidden]):not([type=submit]):not([type=button]):not([type=file]):not([type=radio]):not([type=checkbox]), textarea"
@@ -119,13 +129,13 @@
       if (el.getAttribute("role") === "combobox") return false;
       if (el.closest('[class*="select__"]')) return false;
       if (el.offsetParent === null) return false;
-      return keywords.some(k => getElementContext(el).includes(k.toLowerCase()));
+      return matchKeywords(getElementContext(el), keywords);
     });
   }
 
   function findAllSelects(keywords) {
     return Array.from(document.querySelectorAll("select")).filter(el =>
-      keywords.some(k => getElementContext(el).includes(k.toLowerCase()))
+      matchKeywords(getElementContext(el), keywords)
     );
   }
 
@@ -157,14 +167,14 @@
     const tried = new Set();
     for (const r of allRadios) {
       if (tried.has(r.name)) continue;
-      if (!containerKeywords.some(k => getElementContext(r).includes(k.toLowerCase()))) continue;
+      if (!matchKeywords(getElementContext(r), containerKeywords)) continue;
       tried.add(r.name);
       const group = allRadios.filter(x => x.name === r.name);
       const answerKws = wantYes ? yesKeywords : noKeywords;
       for (const radio of group) {
         const lblEl = radio.id ? document.querySelector(`label[for="${CSS.escape(radio.id)}"]`) : null;
         const lblText = (lblEl?.innerText || lblEl?.textContent || radio.value || "").toLowerCase();
-        if (answerKws.some(k => lblText.includes(k.toLowerCase()))) {
+        if (matchKeywords(lblText, answerKws)) {
           if (!radio.checked) radio.click();
           return 1;
         }
@@ -240,7 +250,7 @@
 
       let desiredValue = null;
       for (const m of reactSelectMap) {
-        if (m.kw.some(k => ctxText.includes(k))) { desiredValue = m.val; break; }
+        if (matchKeywords(ctxText, m.kw)) { desiredValue = m.val; break; }
       }
       if (!desiredValue) continue;
 
@@ -274,7 +284,7 @@
       console.log("[EazyApply] Trying:", desiredValue, "| listboxId:", listboxId, "| indicator:", !!indicator);
 
       // For autocompletes (like Location), inject text first to trigger options fetching from Google API
-      const isLocation = ["location", "city"].some(k => ctxText.includes(k));
+      const isLocation = matchKeywords(ctxText, ["location", "city"]);
       if (isLocation) {
         const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
         if (setter) setter.call(input, desiredValue);
@@ -782,8 +792,8 @@
 
     const unfilled = Array.from(document.querySelectorAll("textarea")).filter(ta => {
       if (ta.value && ta.value.trim().length > 0) return false;
-      const ctx = getElementContext(ta);
-      if (knownKws.some(k => ctx.includes(k))) return false;
+      const ctx = getElementContext(ta).toLowerCase();
+      if (matchKeywords(ctx, knownKws)) return false;
       const question = (ta.id
         ? document.querySelector(`label[for="${CSS.escape(ta.id)}"]`)?.innerText
         : null) || ta.getAttribute("aria-label") || ta.placeholder || "";
@@ -977,7 +987,7 @@
       if (!opts.length) return;
       const m = getMappings(profile);
       for (const { kw, val } of m.selects) {
-        if (val && kw.some(k => ctx.includes(k.toLowerCase()))) {
+        if (val && matchKeywords(ctx, kw)) {
           if (!selectBestOption(el, val)) applyNativeSelect(el, opts[0]);
           return;
         }
@@ -1005,7 +1015,7 @@
       if (el.value && el.value.trim().length > 0) return; // already has content
       const m = getMappings(profile);
       for (const { kw, val } of m.inputs) {
-        if (val && kw.some(k => ctx.includes(k.toLowerCase()))) {
+        if (val && matchKeywords(ctx, kw)) {
           setNativeValue(el, String(val));
           return;
         }
