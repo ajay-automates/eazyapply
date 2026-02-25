@@ -99,8 +99,8 @@
 
     let containerText = "";
     const container = el.closest(
-      "label, .field, .form-group, .input-group, fieldset, " +
-      "[class*='field'], [class*='form'], [class*='question'], [class*='row'], " +
+      "label, .field, .form-group, .input-group, " +
+      "[class*='field'], [class*='form-group'], [class*='question'], " +
       "[class*='input'], [data-field], li, .application-question"
     );
     if (container) containerText = (container.innerText || container.textContent || "").slice(0, 300).toLowerCase();
@@ -244,7 +244,7 @@
       // option texts from the hidden size-mirror and confuses keyword matching.
       const formField = control.parentElement?.closest(
         '[class*="field"], [class*="question"], [class*="form-group"], ' +
-        'fieldset, .application-question, li, [class*="row"]'
+        '.application-question, li'
       ) || control.parentElement?.parentElement?.parentElement;
       const ctxText = (formField?.innerText || formField?.textContent || "").toLowerCase().slice(0, 300);
 
