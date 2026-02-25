@@ -856,7 +856,7 @@
   // ═══════════════════════════════════════════════════════════════════════════════
   // PASS 1: Structured fill (keyword-matched)
   // ═══════════════════════════════════════════════════════════════════════════════
-  function runStructuredFill(profile) {
+  async function runStructuredFill(profile) {
     let count = 0;
     const m = getMappings(profile);
     const platform = detectPlatform();
@@ -892,24 +892,55 @@
       const yesNoQuestions = [
         { kw: /authoriz|right to work|legally|eligible to work/i, wantYes: profile.workAuthorized !== false },
         { kw: /sponsor/i, wantYes: !!profile.requiresSponsorship },
-        { kw: /reloc|willing to relocate|move to/i, wantYes: !!profile.willingToRelocate },
-        { kw: /nyc area|new york city area|located in the nyc/i, wantYes: false },
+        { kw: /reloc|willing to move/i, wantYes: !!profile.willingToRelocate },
+        // NYC / office-presence question — broad catch
+        { kw: /nyc|new york city|office three days|located in the/i, wantYes: false },
       ];
-      const allButtonGroups = document.querySelectorAll('[class*="yesno"], [class*="YesNo"]');
+      const allButtonGroups = document.querySelectorAll('[class*="yesno"], [class*="YesNo"], [class*="_yesno"]');
       for (const group of allButtonGroups) {
-        const questionText = (group.closest('[class*="fieldEntry"]')?.innerText || "").toLowerCase();
+        const fieldEntry = group.closest('[class*="fieldEntry"], [class*="_fieldEntry"]');
+        const questionText = (fieldEntry?.innerText || group.parentElement?.innerText || "").toLowerCase();
         const buttons = Array.from(group.querySelectorAll('button'));
         if (!buttons.length) continue;
-        // Skip if already answered (one button has selected/active styling)
-        if (buttons.some(b => b.getAttribute('aria-pressed') === 'true' || b.classList.contains('selected'))) continue;
+        // Ashby uses _active_ CSS class to mark selected — NOT aria-pressed
+        if (buttons.some(b => /_active_/i.test(b.className))) continue;
         for (const q of yesNoQuestions) {
           if (q.kw.test(questionText)) {
-            const target = buttons.find(b => q.wantYes ? /^yes/i.test(b.textContent.trim()) : /^no/i.test(b.textContent.trim()));
+            const target = buttons.find(b => q.wantYes ? /^yes$/i.test(b.textContent.trim()) : /^no$/i.test(b.textContent.trim()));
             if (target) { target.click(); count++; }
             break;
           }
         }
       }
+
+      // Fill salary / number inputs by keyword label matching
+      for (const numInput of document.querySelectorAll('input[type="number"]')) {
+        if (numInput.value) continue;
+        const ctx = getElementContext(numInput).toLowerCase();
+        if (/salary|compensation|pay|expectation/i.test(ctx)) {
+          const sal = profile.salaryExpectation || profile.desiredSalary;
+          if (sal) { setNativeValue(numInput, String(sal).replace(/[^0-9]/g, '')); count++; }
+        }
+      }
+
+      // Fill Ashby location autocomplete ("Start typing..." combobox)
+      const locInput = document.querySelector('input[placeholder*="typing" i]');
+      if (locInput && !locInput.value && (profile.city || profile.state)) {
+        const locValue = profile.city && profile.state
+          ? `${profile.city}, ${profile.state}`
+          : (profile.city || profile.state || "");
+        setNativeValue(locInput, locValue);
+        locInput.dispatchEvent(new Event('focus', { bubbles: true }));
+        locInput.dispatchEvent(new Event('input', { bubbles: true }));
+        locInput.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true }));
+        await sleep(1200);
+        const suggestion = document.querySelector('[class*="suggestion"], [class*="option"], [role="option"]');
+        if (suggestion) { suggestion.click(); count++; }
+        else {
+          locInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
+        }
+      }
+
 
       // EEO Race radio — match profile ethnicity properly
       const eeoRaceKeyword = (profile.ethnicity || profile.race || "").toLowerCase();
@@ -1225,7 +1256,7 @@
   async function runAllFillPasses(profile) {
     let count = 0;
     showStatus("Filling text fields...");
-    count += runStructuredFill(profile);
+    count += await runStructuredFill(profile);
     showStatus("Filling dropdowns...");
     try { count += await fillReactSelects(profile); } catch (e) { console.warn("[EazyApply] React-Select error:", e); }
     try { count += await confirmAutocompleteSuggestions(); } catch (e) { }
