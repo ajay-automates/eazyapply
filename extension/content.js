@@ -92,9 +92,23 @@
     ].filter(Boolean).join(" ").toLowerCase();
 
     let labelText = "";
+    // Try label[for=id] - works on Ashby (label for=UUID) and standard forms
     if (el.id) {
       const lbl = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
       if (lbl) labelText = (lbl.innerText || lbl.textContent || "").toLowerCase();
+    }
+    // Fallback: look for a label that WRAPS this element
+    if (!labelText) {
+      const wrappingLabel = el.closest("label");
+      if (wrappingLabel) labelText = (wrappingLabel.innerText || wrappingLabel.textContent || "").toLowerCase();
+    }
+    // Fallback: nearest preceding sibling label or legend in parent
+    if (!labelText) {
+      const parent = el.parentElement;
+      if (parent) {
+        const sibling = parent.querySelector("label, legend, [class*='label'], [class*='Label']");
+        if (sibling) labelText = (sibling.innerText || sibling.textContent || "").toLowerCase();
+      }
     }
 
     let containerText = "";
@@ -777,11 +791,18 @@
       }
     }
 
-    // Ashby: uses standard HTML inputs but with specific class names
+    // Ashby: system fields use _systemfield_ prefix; custom fields use UUID names
     if (platform === "ashby") {
-      const nameEl = document.querySelector('input[name="name"], input[placeholder*="name" i]');
+      // Fill Name (_systemfield_name) with full name
+      const nameEl = document.querySelector('input[name="_systemfield_name"], input[id="_systemfield_name"]');
       if (nameEl && !nameEl.value) {
         setNativeValue(nameEl, [profile.firstName, profile.lastName].filter(Boolean).join(" "));
+        count++;
+      }
+      // Fill Email (_systemfield_email)
+      const emailEl = document.querySelector('input[name="_systemfield_email"], input[id="_systemfield_email"]');
+      if (emailEl && !emailEl.value) {
+        setNativeValue(emailEl, profile.email || "");
         count++;
       }
     }
