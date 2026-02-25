@@ -794,6 +794,10 @@
         { kw: ["professional memberships", "memberships"], val: p.professionalMemberships },
         { kw: ["visa type", "current visa"], val: p.visaType },
         { kw: ["citizenship", "residency status"], val: p.citizenship },
+        {
+          kw: ["salary expectation", "salary expectations", "expected salary", "expected compensation",
+            "desired salary", "pay expectation", "base salary expectation"], val: p.salaryExpectation || p.desiredSalary
+        },
       ],
       selects: [
         { kw: ["based in the usa", "based in us", "live in the us", "based in us"], val: "Yes" },
@@ -877,17 +881,65 @@
 
     // Ashby: system fields use _systemfield_ prefix; custom fields use UUID names
     if (platform === "ashby") {
-      // Fill Name (_systemfield_name) with full name
+      // Fill Name
       const nameEl = document.querySelector('input[name="_systemfield_name"], input[id="_systemfield_name"]');
-      if (nameEl && !nameEl.value) {
-        setNativeValue(nameEl, [profile.firstName, profile.lastName].filter(Boolean).join(" "));
-        count++;
-      }
-      // Fill Email (_systemfield_email)
+      if (nameEl && !nameEl.value) { setNativeValue(nameEl, [profile.firstName, profile.lastName].filter(Boolean).join(" ")); count++; }
+      // Fill Email
       const emailEl = document.querySelector('input[name="_systemfield_email"], input[id="_systemfield_email"]');
-      if (emailEl && !emailEl.value) {
-        setNativeValue(emailEl, profile.email || "");
-        count++;
+      if (emailEl && !emailEl.value) { setNativeValue(emailEl, profile.email || ""); count++; }
+
+      // Handle button-based Yes/No questions (Ashby uses <button> not <input>)
+      const yesNoQuestions = [
+        { kw: /authoriz|right to work|legally|eligible to work/i, wantYes: profile.workAuthorized !== false },
+        { kw: /sponsor/i, wantYes: !!profile.requiresSponsorship },
+        { kw: /reloc|willing to relocate|move to/i, wantYes: !!profile.willingToRelocate },
+        { kw: /nyc area|new york city area|located in the nyc/i, wantYes: false },
+      ];
+      const allButtonGroups = document.querySelectorAll('[class*="yesno"], [class*="YesNo"]');
+      for (const group of allButtonGroups) {
+        const questionText = (group.closest('[class*="fieldEntry"]')?.innerText || "").toLowerCase();
+        const buttons = Array.from(group.querySelectorAll('button'));
+        if (!buttons.length) continue;
+        // Skip if already answered (one button has selected/active styling)
+        if (buttons.some(b => b.getAttribute('aria-pressed') === 'true' || b.classList.contains('selected'))) continue;
+        for (const q of yesNoQuestions) {
+          if (q.kw.test(questionText)) {
+            const target = buttons.find(b => q.wantYes ? /^yes/i.test(b.textContent.trim()) : /^no/i.test(b.textContent.trim()));
+            if (target) { target.click(); count++; }
+            break;
+          }
+        }
+      }
+
+      // EEO Race radio — match profile ethnicity properly
+      const eeoRaceKeyword = (profile.ethnicity || profile.race || "").toLowerCase();
+      if (eeoRaceKeyword) {
+        const raceRadios = Array.from(document.querySelectorAll('input[type="radio"]')).filter(r => {
+          const ctx = getElementContext(r).toLowerCase();
+          return /race|ethnicity|racial origin/i.test(ctx);
+        });
+        // Find the best matching radio for profile ethnicity
+        for (const r of raceRadios) {
+          const lbl = r.id ? document.querySelector(`label[for="${CSS.escape(r.id)}"]`) : null;
+          const lblText = (lbl?.innerText || lbl?.textContent || r.value || "").toLowerCase();
+          const words = eeoRaceKeyword.split(/[\s,]+/).filter(w => w.length > 2);
+          if (words.some(w => lblText.includes(w))) {
+            if (!r.checked) r.click(); count++; break;
+          }
+        }
+      }
+
+      // EEO Veteran status — pick "not a protected veteran"
+      const vetRadios = Array.from(document.querySelectorAll('input[type="radio"]')).filter(r => {
+        const ctx = getElementContext(r).toLowerCase();
+        return /veteran/i.test(ctx);
+      });
+      if (vetRadios.length) {
+        const notVet = vetRadios.find(r => {
+          const lbl = r.id ? document.querySelector(`label[for="${CSS.escape(r.id)}"]`) : null;
+          return /not a protected|i am not|not identify|decline|i don't/i.test(lbl?.innerText || lbl?.textContent || r.value || "");
+        });
+        if (notVet && !notVet.checked) { notVet.click(); count++; }
       }
     }
 
