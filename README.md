@@ -1,42 +1,164 @@
-# EazyApply
+<div align="center">
 
-AI-powered Chrome extension that auto-fills job applications. Upload your resume, we extract everything. One click to fill any ATS form.
+<img src="https://capsule-render.vercel.app/api?type=waving&color=gradient&customColorList=6,11,20&height=170&section=header&text=EazyApply&fontSize=52&fontAlignY=35&animation=twinkling&fontColor=ffffff&desc=AI-Powered%20Job%20Application%20Auto-Filler&descAlignY=55&descSize=18" width="100%" />
 
-## Getting Started
+[![Chrome Extension](https://img.shields.io/badge/Chrome-Extension-4285F4?style=for-the-badge&logo=googlechrome&logoColor=white)](.)
+[![Next.js](https://img.shields.io/badge/Next.js-15-000000?style=for-the-badge&logo=next.js&logoColor=white)](.)
+[![Anthropic Claude](https://img.shields.io/badge/Claude_API-Powered-8B5CF6?style=for-the-badge&logo=anthropic&logoColor=white)](.)
+[![Manifest V3](https://img.shields.io/badge/Manifest-V3-FF6D00?style=for-the-badge&logo=googlechrome&logoColor=white)](.)
+[![Vercel](https://img.shields.io/badge/Vercel-Deployed-000000?style=for-the-badge&logo=vercel&logoColor=white)](.)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
 
-```bash
-npm install
-npm run dev
-```
+**Upload your resume once. One click to auto-fill any ATS job application.**
 
-Add your Anthropic API key to `.env.local`:
-```
-ANTHROPIC_API_KEY=sk-ant-...
-```
+[Live Dashboard](#deploy) · [Install Extension](#chrome-extension-setup) · [Architecture](#architecture) · [Supported Platforms](#supported-ats-platforms)
 
-## Deploy
-
-Connect this repo to Vercel for automatic deployment.
+</div>
 
 ---
 
-## Chrome Extension
+## The Problem
 
-The `extension/` folder contains a **Manifest V3** Chrome extension that auto-fills job applications on Greenhouse, LinkedIn, Lever, and Workday.
+Applying to jobs takes 30+ minutes per application — filling the same name, email, phone, work history, and demographic info into Greenhouse, Lever, LinkedIn, and Workday forms. Manually. Every. Single. Time.
 
-### Extension File Structure
+## The Solution
+
+**EazyApply** is a Chrome extension + Next.js dashboard that extracts your resume data once, then auto-fills job applications with a single ⚡ click. Claude AI handles open-ended custom questions.
+
+```
+Resume Upload → AI Extraction → Profile Stored → Visit Any Job Page → ⚡ Click → All Fields Filled
+```
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Next.js Dashboard                      │
+│  ┌──────────┐  ┌──────────┐  ┌────────────────────────┐ │
+│  │  Resume   │  │ Profile  │  │  /api/answer-question  │ │
+│  │  Upload   │→ │  Editor  │  │  (Claude AI for custom │ │
+│  │  + Parse  │  │  + Save  │  │   open-ended fields)   │ │
+│  └──────────┘  └────┬─────┘  └────────────┬───────────┘ │
+└─────────────────────┼─────────────────────┼─────────────┘
+                      │ localStorage sync    │ AI answers
+              ┌───────▼──────────┐           │
+              │ dashboard-sync.js│           │
+              │ (content script) │           │
+              └───────┬──────────┘           │
+                      │ chrome.storage.local │
+              ┌───────▼──────────────────────▼─────┐
+              │         Chrome Extension            │
+              │  ┌─────────────┐  ┌──────────────┐ │
+              │  │ content.js  │  │ background.js│ │
+              │  │ ⚡ button   │  │ frame relay  │ │
+              │  │ fill logic  │  │ msg broker   │ │
+              │  └──────┬──────┘  └──────────────┘ │
+              └─────────┼──────────────────────────┘
+                        │ fills forms on
+         ┌──────────────┼──────────────────────┐
+         ▼              ▼            ▼         ▼
+   ┌──────────┐  ┌───────────┐ ┌────────┐ ┌────────┐
+   │Greenhouse│  │ LinkedIn  │ │ Lever  │ │Workday │
+   │  + EEOC  │  │ Easy Apply│ │        │ │        │
+   │ iframes  │  │  modals   │ │        │ │        │
+   └──────────┘  └───────────┘ └────────┘ └────────┘
+```
+
+---
+
+## Key Features
+
+| Feature | Details |
+|---------|---------|
+| **One-Click Fill** | Inject ⚡ button on any ATS page, fills all fields instantly |
+| **AI Custom Answers** | Claude API handles open-ended questions ("Why do you want to work here?") |
+| **Resume Upload** | Base64 file injection into ATS upload widgets |
+| **React-Select Support** | Handles Greenhouse demographic dropdowns (gender, ethnicity, veteran, disability) |
+| **Cross-Frame Filling** | Fills EEOC/demographic forms inside same-origin iframes |
+| **Validation Retry** | Clicks Submit, catches validation errors, re-fills, retries up to 3× |
+| **SPA Navigation** | MutationObserver re-injects ⚡ button on URL changes |
+| **React-Safe Setters** | Bypasses React/Angular state management with native property descriptors |
+
+---
+
+## Supported ATS Platforms
+
+| Platform | Text Fields | Dropdowns | File Upload | Demographics | Status |
+|----------|:-----------:|:---------:|:-----------:|:------------:|:------:|
+| **Greenhouse** | ✅ | ✅ | ✅ | ✅ (React-Select) | Production |
+| **LinkedIn Easy Apply** | ✅ | ✅ | ✅ | — | Production |
+| **Lever** | ✅ | ✅ | ✅ | — | Production |
+| **Workday** | ✅ | ✅ | ⚠️ | — | Beta |
+
+---
+
+## Quick Start
+
+### Dashboard (Next.js)
+
+```bash
+git clone https://github.com/ajay-automates/eazyapply.git
+cd eazyapply
+npm install
+cp .env.example .env.local   # Add your ANTHROPIC_API_KEY
+npm run dev                   # http://localhost:3000
+```
+
+### Chrome Extension Setup
+
+1. Open Chrome → `chrome://extensions`
+2. Enable **Developer mode** (top-right toggle)
+3. Click **Load unpacked** → select the `extension/` folder
+4. Navigate to the dashboard → fill your profile → save
+5. Visit any Greenhouse/LinkedIn/Lever job page → click ⚡
+
+---
+
+## Extension File Structure
 
 ```
 extension/
-  manifest.json       — permissions, content_scripts, host_permissions
-  background.js       — service worker: stores profile, broadcasts fill to all frames
-  content.js          — runs on job pages: injects ⚡ button, fills all form fields
-  dashboard-sync.js   — runs on dashboard: syncs profile/resume from localStorage to extension
-  popup.html/js       — toolbar popup: status, fill button, dashboard link
-  icons/              — icon16/48/128.png
+├── manifest.json         # Manifest V3 — permissions, content scripts, host permissions
+├── background.js         # Service worker: stores profile, broadcasts fill to all frames
+├── content.js            # Runs on job pages: injects ⚡ button, fills all form fields
+├── dashboard-sync.js     # Runs on dashboard: syncs profile from localStorage → extension
+├── popup.html/js         # Toolbar popup: status, fill button, dashboard link
+└── icons/                # Extension icons (16/48/128px)
 ```
 
-### Data Flow
+---
+
+## Technical Deep Dives
+
+### React-Select Automation (Greenhouse Demographics)
+
+Greenhouse uses React-Select for EEOC dropdowns — not native `<select>` elements. Standard DOM manipulation fails because React manages state internally.
+
+**Solution:** 3-level DOM walk from `input[role="combobox"]` → inputWrapper → valueContainer → Control div, then dispatch `mousedown`/`mouseup` events (React-Select uses `onMouseDown`, not `onClick`). Four cascading open methods ensure reliability across React-Select versions.
+
+### Cross-Frame EEOC Filling
+
+Greenhouse loads demographic sections in same-origin iframes. The ⚡ button exists in the main frame only.
+
+**Solution:** After filling the main frame, `background.js` enumerates all subframes via `chrome.webNavigation.getAllFrames()` and sends `FILL_FORMS` messages with `{ frameId }` targeting.
+
+### React-Safe Value Injection
+
+LinkedIn and Workday use React/Angular — setting `el.value` doesn't trigger framework change detection.
+
+**Solution:** `setNativeValue()` uses `Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set` and dispatches the full event chain: `focus → input → change → blur → keyup`.
+
+### Unicode Normalization
+
+Greenhouse renders curly apostrophes (`\u2019`) in options like "I don't wish to answer". Pattern matching against straight apostrophes fails silently.
+
+**Solution:** `norm()` helper replaces all Unicode quote variants before string comparison, plus fallback logic that selects the last option (Greenhouse convention for decline/prefer-not-to-say).
+
+---
+
+## Data Flow
 
 ```
 User fills profile on dashboard (Next.js app)
@@ -53,148 +175,56 @@ User clicks ⚡ → content.js reads profile from chrome.storage.local
         ↓
 Runs all fill passes on main frame + broadcasts FILL_FORMS to all iframes
         ↓
-Fields filled, toast shown "N fields filled"
+Fields filled → toast shown "N fields filled"
 ```
-
-### Testing Locally
-
-1. Open Chrome → `chrome://extensions`
-2. Enable **Developer mode** (top-right toggle)
-3. Click **Load unpacked** → select the `extension/` folder
-4. Note the Extension ID shown
-5. Go to the dashboard → fill profile → save
-6. Go to any Greenhouse job page → click ⚡
 
 ---
 
-## Extension Development Log
+## Deploy
 
-### What Works
+### Dashboard → Vercel
 
-- ✅ Profile sync from dashboard → extension storage (via `dashboard-sync.js`)
-- ✅ Text inputs filled on Greenhouse, LinkedIn, Lever, Workday (name, email, phone, links, address, etc.)
-- ✅ Native `<select>` dropdowns filled (keyword-matched + fallback to first option)
-- ✅ Radio buttons filled (work authorization, sponsorship, relocation)
-- ✅ Resume upload (base64 → File → DataTransfer injection)
-- ✅ AI pass for custom open-ended questions (via `/api/answer-question` endpoint)
-- ✅ **Greenhouse demographic React-Select dropdowns** — gender, transgender, sexual orientation, ethnicity, veteran status, disability (see challenges below)
-- ✅ Validation retry loop: clicks Next/Submit, collects errored fields, refills them, retries up to 3×
-- ✅ SPA navigation re-inject (MutationObserver watches URL changes)
+Connect this repo to Vercel. Set `ANTHROPIC_API_KEY` in environment variables. Automatic deployment on push.
 
-### Challenges and How They Were Fixed
+### Extension → Chrome Web Store
 
-#### 1. React-Select dropdowns (Greenhouse demographics)
+Package the `extension/` folder as a `.zip` and submit to the Chrome Web Store developer dashboard.
 
-Greenhouse's demographic section uses **React-Select** (a JavaScript custom dropdown library), not native `<select>` elements. Native DOM manipulation (`el.value = ...`) does not work on React-Select.
+---
 
-**What makes React-Select hard to automate:**
-- The visible "select box" is a `div`, not a `<select>` element
-- The actual `<input role="combobox">` is hidden inside nested divs
-- Opening the menu requires simulating real user interaction (mousedown events), not just `.click()`
-- React 16+ uses synthetic events attached at the document root — native events must bubble correctly to trigger them
-- The listbox (`[role="listbox"]`) only appears in the DOM when the menu is open
-- `aria-controls` (which points to the listbox ID) is only set in React-Select v5 when the menu is **already open**, not when closed
+## Known Limitations & Roadmap
 
-**Attempt 1 — Strategy-based CSS class walking (removed)**
-Walked up from inputs looking for `[class*="container"]`, `[class*="control"]` etc. Failed because Greenhouse uses hashed CSS class names like `css-abc123-control`, and the container selector matched a div wrapping ALL the demographic dropdowns at once.
+| Issue | Status |
+|-------|--------|
+| Multi-select dropdowns (ethnicity "mark all that apply") | Planned |
+| LinkedIn Easy Apply multi-step modal retry tuning | In Progress |
+| Newer Workday `data-automation-id` selectors | Monitoring |
+| Drag-and-drop-only upload widgets | Investigating |
 
-**Attempt 2 — Text scan for "Select…" placeholders (removed)**
-Queried all elements whose text matched "Select..." to find unfilled dropdowns. Found 74 false-positive controls (any div containing the text "Select").
+---
 
-**Attempt 3 — `input[role="combobox"]` iteration (2-level walk)**
-Iterated all `input[role="combobox"]` elements directly. Walked up 2 levels to get the "control" div. **Bug:** the walk was one level too shallow:
+## Tech Stack
 
-```
-input[role="combobox"]
-  └── input.parentElement         → InputWrapper div  ← code called this "valueContainer"
-  └── .parentElement              → ValueContainer    ← code called this "control" (WRONG)
-  └── .parentElement              → Control div       ← actual React-Select Control
-        └── IndicatorsContainer
-              └── DropdownIndicator [aria-hidden="true"]
-                    └── svg
-```
+`Next.js 15` `React 19` `TypeScript` `Anthropic Claude API` `Chrome Extension Manifest V3` `Vercel` `Tailwind CSS`
 
-Because `control` was actually `ValueContainer`, `control.querySelector('[aria-hidden="true"] svg')` found **nothing** (the indicator SVG is a sibling of ValueContainer, not inside it). Result: `indicator: false`, and `.click()` on ValueContainer wasn't reaching React-Select's `onMouseDown` handler on the real Control div.
+---
 
-**Attempt 4 — Correct 3-level walk + mousedown dispatch (current, working)**
-Fixed the walk to 3 levels: `input → inputWrapper → valueContainer → control`. The Control div's `querySelector('[aria-hidden="true"] svg')` now correctly finds the indicator arrow. Changed event dispatch from `.click()` to `mousedown`+`mouseup` (React-Select uses `onMouseDown` to toggle the menu, not `onClick`). Four cascading open methods:
-- Method A: `mousedown` on indicator SVG
-- Method B: `mousedown` on the Control div
-- Method C: `focus` + `ArrowDown` keydown on the input
-- Method D: plain `.click()` as last resort
+## Related Projects
 
-#### 2. Demographic form is in an iframe (Greenhouse)
+| Project | Description |
+|---------|-------------|
+| [Job Application Automator MCP](https://github.com/ajay-automates/job-application-automator-mcp) | MCP server for fully autonomous job applications |
+| [AI Voice Agent](https://github.com/ajay-automates/ai-voice-agent) | Voice-powered document Q&A with Whisper + GPT-4o |
+| [Social Media Automator](https://github.com/ajay-automates/social-media-automator) | Multi-platform social media SaaS with 6 AI agents |
 
-The ⚡ button is injected in the **main frame** of the page. Greenhouse loads the demographic section (EEOC questions) inside a **same-origin iframe** embedded in the application page.
+---
 
-**Symptom:** Main frame's `fillReactSelects` found 16 combobox inputs (phone country code dropdowns, location search, etc.) but never found gender/race/veteran/disability — those labels were in the iframe's DOM, not the main frame's.
+<div align="center">
 
-**Fix:**
-1. Added `"webNavigation"` to permissions in `manifest.json`
-2. In `content.js` `init()`: skip injecting the ⚡ button when `window !== window.top` (iframes don't need their own button; the `FILL_FORMS` message listener still works)
-3. In ⚡ button `onclick`: after filling the main frame, also send `FILL_ALL_FRAMES` to background
-4. In `background.js`: `FILL_ALL_FRAMES` handler uses `chrome.webNavigation.getAllFrames()` to enumerate every subframe of the active tab, then sends `{ action: "FILL_FORMS" }` to each one with `{ frameId }` targeting
+**Built by [Ajay Kumar Reddy Nelavetla](https://github.com/ajay-automates)**
 
-#### 3. False-positive "stale listbox" detection
+*Reducing job application time from 30+ minutes to under 60 seconds.*
 
-After opening a React-Select dropdown, the code used `document.querySelector('[role="listbox"]')` to find the newly-opened menu. On Greenhouse's application page, a Google Places autocomplete widget also renders a `[role="listbox"]` that is always present in the DOM (for the location/address field).
+<img src="https://capsule-render.vercel.app/api?type=waving&color=gradient&customColorList=6,11,20&height=100&section=footer" width="100%" />
 
-**Fix:** Snapshot all existing `[role="listbox"]` elements **before** opening each dropdown (`preExisting = new Set(...)`). `findNewMenu()` then checks for newly-appeared listboxes by comparing against the snapshot.
-
-#### 4. React-safe value setter for Angular/React inputs
-
-LinkedIn and Workday use React/Angular — simply setting `el.value = "..."` does not trigger framework change detection, so the field appears filled visually but submits as empty.
-
-**Fix:** `setNativeValue(el, value)` uses the native property descriptor setter and dispatches `focus`, `input`, `change`, `blur`, and `keyup` events:
-
-```js
-function setNativeValue(el, value) {
-  const setter = Object.getOwnPropertyDescriptor(
-    window.HTMLInputElement.prototype, 'value'
-  ).set;
-  setter.call(el, String(value));
-  el.dispatchEvent(new Event("focus", { bubbles: true }));
-  el.dispatchEvent(new Event("input", { bubbles: true }));
-  el.dispatchEvent(new Event("change", { bubbles: true }));
-  el.dispatchEvent(new Event("blur", { bubbles: true }));
-  el.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true }));
-}
-```
-
-#### 5. Resume upload — base64 field name mismatch
-
-Dashboard stored resume as `{ name, type, data: "<base64>" }` but `content.js` was reading `resumeData.base64` (undefined).
-
-**Fix:** `const b64 = resumeData?.base64 || resumeData?.data;`
-
-#### 6. `aria-controls` is null on closed React-Select v5 inputs
-
-React-Select v5 only sets `aria-controls` on the input when the menu is **open**. Before opening, `input.getAttribute('aria-controls')` returns null, so we can't pre-look-up the listbox ID.
-
-**Fix:** `listboxId` is still read (in case it's set), but `findNewMenu()` uses the pre-existing snapshot as primary detection. The listboxId path is a fast-path bonus when available.
-
-#### 7. Curly apostrophe in option text ("I don\u2019t wish to answer")
-
-Greenhouse renders option text with Unicode curly apostrophes (`\u2019`, right single quotation mark) — e.g., "I don't wish to answer". Our decline patterns used straight apostrophes (`'`), so `"i don't"` never matched `"i don\u2019t wish to answer"`. This caused "decline" desired values to fall through all pattern checks and pick the **first option** (often "Yes, I am a veteran").
-
-**Fix:** Added a `norm()` helper that replaces `\u2018/\u2019/\u201a/\u201b` → `'` and `\u201c/\u201d` → `"` before any string comparison. Applied to both `fillReactSelects` and `selectBestOption`.
-
-Also added additional fallbacks for decline-intent values:
-- Step 4: find options starting with "No" or "I am not"
-- Step 5: pick the **last option** (Greenhouse puts decline/prefer-not-to-say last)
-
-#### 8. "Stuck" React Selects & Missed Checkboxes (Update: Spring 2026)
-
-Custom Greenhouse dropdowns ("National pay range", "Based in the USA", "Work Authorization", and "Visa Sponsorship") were constructed using a notoriously difficult combination of hidden native HTML `<select>` elements overlaid with React's strict state management. Our script was technically "answering" the questions in the background DOM, but React was aggressively rejecting the changes and overriding them back to "Select..." visually.
-
-**Fix:** 
-1. **React State Override (`setNativeValue`):** Rewrote the underlying DOM manipulation function to force React to acknowledge changes made to `<select>` tags by safely hijacking `window.HTMLSelectElement.prototype.set`.
-2. **Aggressive AI Fallback Engine:** Implemented a new `fallbackFillReactSelects` and `fallbackFillCheckboxes` pipeline. Now, if the AI cannot find a perfect semantic match for a custom question, it triggers a fallback that forces the menu open, scans the options, and defaults to selecting the top positive answer (e.g., "Yes") instead of leaving it blank.
-
-### Known Remaining Issues / TODO
-
-- **Multi-select dropdowns** (ethnicity "mark all that apply"): our code picks one option and closes the menu; multiple selections not yet supported
-- Some dropdowns on Greenhouse are multi-select (ethnicity can be "mark all that apply") — our code picks one option; multi-select support needed
-- LinkedIn Easy Apply is a multi-step modal — validation retry loop needs tuning for modal-based multi-step flows
-- Workday's `data-automation-id` selectors may need updating for newer Workday versions
-- File upload for resume doesn't work on some ATS platforms that use their own upload widgets (drag-and-drop only, not `<input type="file">`)
+</div>
